@@ -1,0 +1,133 @@
+
+% ======================================================================
+% ============================   Packages   ============================
+% ======================================================================
+
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[ruled,algosection]{algorithm2e}
+\usepackage{resizegather}
+\usepackage{amsfonts, amsmath, amssymb, amsthm}
+\usepackage{mathtools}
+\usepackage[
+    linktoc=all,
+    colorlinks=true, 
+    linkcolor=blue, 
+    citecolor=black,
+    hypertexnames=true
+]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[acronym,nonumberlist,nogroupskip,nopostdot,toc]{glossaries}
+\usepackage{setspace}
+\usepackage{emptypage}
+\usepackage{subfiles}
+\usepackage{natbib}
+\usepackage{subcaption}
+\usepackage{placeins}
+\usepackage{environ}
+
+\usepackage{lipsum}
+\usepackage{bold-extra}
+
+\setlength{\parindent}{1em}
+\setlength{\parskip}{0.5em}
+
+% ======================================================================
+% ====================   Environment deffinitions   ====================
+% ======================================================================
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+
+% ======================================================================
+% ============================   Commands   ============================
+% ======================================================================
+
+\renewcommand{\eqref}[1]{Equation~(\ref{#1})}
+
+% Add brackets to functions
+\renewcommand{\sin}[1]{\mathrm{sin}\!\left( #1 \right)}
+\renewcommand{\cos}[1]{\mathrm{cos}\!\left( #1 \right)}
+\renewcommand{\tan}[1]{\mathrm{tan}\!\left( #1 \right)}
+\renewcommand{\sec}[1]{\mathrm{sec}\!\left( #1 \right)}
+\renewcommand{\csc}[1]{\mathrm{csc}\!\left( #1 \right)}
+\renewcommand{\cot}[1]{\mathrm{cot}\!\left( #1 \right)}
+\renewcommand{\arcsin}[1]{\mathrm{asin}\!\left( #1 \right)}
+\renewcommand{\arccos}[1]{\mathrm{acos}\!\left( #1 \right)}
+\renewcommand{\arctan}[1]{\mathrm{atan}\!\left( #1 \right)}
+\renewcommand{\exp}[1]{\mathrm{exp}\!\left( #1 \right)}
+\renewcommand{\ln}[1]{\mathrm{ln}\!\left( #1 \right)}
+% \renewcommand{\min}[1][x]{\text{min}\left( #1 \right)}
+\newcommand{\argmin}[2]{\mathrm{arg}\,\mathrm{min}_{#1} #2}
+\renewcommand{\min}[1]{\mathrm{min}\!\left( #1 \right)}
+\renewcommand{\max}[1]{\mathrm{max}\!\left( #1 \right)}
+
+% Custom operators
+\renewcommand{\mid}{\:\middle|\:}
+\newcommand{\T}{^T} % Transpose
+\newcommand{\set}[2]{\left\{ #1 \mid #2 \right\}} % Set
+\newcommand{\expect}[1]{\mathbb{E} \left[ #1 \right]} % Expectation
+\newcommand{\condexpect}[2]{\mathbb{E} \left[ #1 \mid #2 \right]} % Conditional Expectation
+\newcommand{\var}[1]{\mathbb{V} \left[ #1 \right]} % Variance
+\newcommand{\iid}{\overset{\mathrm{iid}}{\sim}}
+\newcommand{\cond}[2]{\left( #1 \mid #2 \right)} % General conditional
+\newcommand{\pdf}[1]{\pi\left( #1 \right)}
+\newcommand{\condpdf}[2]{\pi \cond{#1}{#2}}
+\newcommand{\prob}[1]{\mathrm{Pr} \left( #1 \right)} % Probability
+\newcommand{\condprob}[2]{\mathrm{Pr} \cond{#1}{#2} } % Conditional Probability
+\newcommand{\rmd}{\,\mathrm{d}} % mathrm d for calculus
+\newcommand{\pderiv}[2]{\dfrac{\partial #1}{\partial #2}} % Partial derivative
+\newcommand{\deriv}[2]{\dfrac{\rmd #1}{\rmd #2}} % Derivative
+\newcommand{\bmat}[1]{\begin{bmatrix} #1 \end{bmatrix}} 
+
+% Specific notation
+\newcommand{\data}[1]{y_{\mathrm{#1}}}
+\newcommand{\likelihood}[2]{L\left( #1 \mid #2 \right)} % Likelihood function
+\newcommand{\loglikelihood}[2]{\ell\left( #1 \mid #2 \right)} % Likelihood function
+\newcommand{\ind}[1]{\mathbb{I}\left(#1\right)}
+% \newcommand{\ind}[2]{\mathds{1}_{#1}\left(#2\right)}
+
+% Notes and ToDo
+\newcommand{\refholder}{[\textcolor{blue}{REF}]}
+\newcommand{\todo}[1]{\textcolor{red}{TODO: #1}}
+\newcommand{\note}[1]{\textcolor{blue}{NOTE: #1}}
+\newcommand{\purpose}[1]{\textcolor{orange}{PURPOSE: #1}}
+\newcommand{\edit}[1]{\textcolor{red}{#1}}
+
+% Rescale equations
+\newcommand{\rescale}[2]{\scalebox{#1}{$\displaystyle{#2}$}}
+
+% =======================
+% ===   Bold Greeks   ===
+% =======================
+
+\newcommand{\balpha}{\boldsymbol{\alpha}}
+\newcommand{\bbeta}{\boldsymbol{\beta}}
+\newcommand{\bgamma}{\boldsymbol{\gamma}}
+\newcommand{\bdelta}{\boldsymbol{\delta}}
+\newcommand{\bepsilon}{\boldsymbol{\epsilon}}
+\newcommand{\bzeta}{\boldsymbol{\zeta}}
+\newcommand{\bfeta}{\boldsymbol{\eta}}
+\newcommand{\btheta}{\boldsymbol{\theta}}
+\newcommand{\biota}{\boldsymbol{\iota}}
+\newcommand{\bkappa}{\boldsymbol{\kappa}}
+\newcommand{\blambda}{\boldsymbol{\lambda}}
+\newcommand{\bmu}{\boldsymbol{\mu}}
+\newcommand{\bnu}{\boldsymbol{\nu}}
+\newcommand{\bxi}{\boldsymbol{\xi}}
+\newcommand{\bpi}{\boldsymbol{\pi}}
+\newcommand{\brho}{\boldsymbol{\rho}}
+\newcommand{\bsigma}{\boldsymbol{\sigma}}
+\newcommand{\btau}{\boldsymbol{\tau}}
+\newcommand{\bupsilon}{\boldsymbol{\upsilon}}
+\newcommand{\bphi}{\boldsymbol{\phi}}
+\newcommand{\bchi}{\boldsymbol{\chi}}
+\newcommand{\bpsi}{\boldsymbol{\psi}}
+\newcommand{\bomega}{\boldsymbol{\omega}}
+\newcommand{\bvarepsilon}{\boldsymbol{\varepsilon}}
+\newcommand{\bvartheta}{\boldsymbol{\vartheta}}
+\newcommand{\bvaromega}{\boldsymbol{\varomega}}
+\newcommand{\bvarrho}{\boldsymbol{\varrho}}
+\newcommand{\bvarzeta}{\boldsymbol{\varsigma}}  %NB really sigma
+\newcommand{\bvarsigma}{\boldsymbol{\varsigma}}
+\newcommand{\bvarphi}{\boldsymbol{\varphi}}

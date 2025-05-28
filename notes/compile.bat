@@ -1,0 +1,1 @@
+julia --project -t2 LatexCompiler.jl

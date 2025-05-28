@@ -1,0 +1,131 @@
+\chapter{Fundamentals}
+
+\section{Stochastic Models and Inference}
+
+A model in general takes some input and gives some output,
+\begin{align*}
+    f(x) = y
+\end{align*}
+A stochastic model is the same, however, every single time we evaluate the model we get a different answer. 
+
+To get a feel for stochastic modelling, we will start with a basic stochastic model. Suppose we are studying some phenomena and collect a bunch of observations. We will call the set of observations $Y$ and each observation $y_i$. Our goal is to make a stochastic model which mimics our set of observations,
+\begin{align*}
+    y_i = \mu + \varepsilon_i
+\end{align*}
+you can think of $\varepsilon$ as the \textit{error}, so our model is that each of our observations has a value $\mu$ plus some error. For this type of model we must make an assumption on how our error is distributed, the easiest and often best assumption is that our error is normally distributed with mean 0 and some standard deviation $\sigma$, $\varepsilon\_i\sim\mathcal{N}(0,\sigma)$. Our model then becomes,
+\begin{align*}
+    y_i\sim\mathcal{N}(\mu,\sigma),
+\end{align*}
+meaning, our observations are randomly distributed by the normal distribution with mean $\mu$ and standard deviation $\sigma$. To actually lean anything from this model, we must first learn about the likelihood function.
+
+The likelihood function is the total probability of our observations given our observations. What it tells us is the total probability of getting a set of observations given a model. The full form of the likelihood function is,
+\begin{align}
+    \likelihood{y_i}{\theta} &= \prod_{i=1}^{n} \condpdf{y_i}{\{y_j\}^n_{j \neq i}, \theta}.
+\end{align}
+Here $\theta$ is all of our model parameters, in this case $\mu$ and $\sigma$. A factor we must consider about our data is whether it is independent and identically distributed (iid) or not. iid data means that all of our observations are completely independent from one another, we will worry about non-iid data later. Here assuming our data is iid the likelihood becomes,
+\begin{align*}
+    \likelihood{y_i}{\theta} &= \prod_{i=1}^{n} \condpdf{y_i}{\theta},\\
+    &= \frac{1}{\sigma\sqrt{2\pi}}\exp{-\frac{1}{2\sigma^2}(y_i-\mu)^2},\\
+    &= \frac{1}{\sigma^n(2\pi)^\frac{n}{2}}\exp{-\frac{1}{2\sigma^2}\sum_{i=1}^{n}(y_i-\mu)^2}.
+\end{align*}
+The parameters which are the most likely to give us our observations maximises the likelihood function, so to infer the value of our parmeters, we can find for what values is the likelihood function maximised. Before we get started on that, let's talk about the log-likelihood. The log-likelihood is exactly the same, but, wildly easier to differentiate,
+\begin{align*}
+    \loglikelihood{Y}{\theta} &= \ln{\likelihood{Y}{\theta}}\\
+    &= -\frac{n}{2}\ln{2\pi}-n\ln{\sigma}-\frac{1}{2\sigma^2}\sum_{i=1}^{n}(y_i-\mu)^2
+\end{align*}
+
+To find the best value for $\mu$ we solve,
+\begin{align*}
+    0 &= \pderiv{\loglikelihood{Y}{\theta}}{\mu},\\
+    0 &= \frac{1}{\sigma^2}\sum_{i=1}^{n} (y_i-\mu),\\
+    \hat{\mu} &= \frac{1}{n}\sum_{i=1}^{n} y_i,
+\end{align*}
+and for $\sigma$,
+\begin{align*}
+    0 &= \pderiv{\loglikelihood{Y}{\theta}}{\sigma},\\
+    0 &= -\frac{n}{\sigma} + \frac{1}{\sigma^3} \sum_{i=1}^{n} (y_i-\mu)^2,\\
+    \hat{\sigma} &= \sqrt{\frac{1}{n}\sum_{i=1}^{n} (y_i-\mu)^2}.
+\end{align*}
+We give our estimates $\hat{\mu}$ and $\hat{\sigma}$ to signify that these are estimated values. If these formulas look familiar, they should, these are the mean and standard deviation formulas, the mean in particular you probably use far more often than you realise.
+
+
+
+
+
+\section{Bayes Theorem and Bayesian Inference}
+
+Summation rule
+\begin{align}
+    \sum_{i=1}^{n} \prob{x, y_i} = \prob{x}
+\end{align}
+
+Product Rule
+\begin{align}
+    \prob{A \cap B} = \prob{A}\condprob{B}{A}
+\end{align}
+
+Bayes theorem comes from thinking about the product rule being commutative,
+\begin{align}
+    \prob{A \cap B} &= \prob{B \cap A} \\ 
+    \prob{A}\condprob{B}{A} &= \prob{B}\condprob{A}{B}\\
+    \condprob{A}{B} &= \frac{\prob{A}\condprob{B}{A}}{\prob{B}}
+\end{align}
+
+The usual form of Bayes' theorem we will see when doing Bayesian Inference is,
+\begin{align}
+    \condpdf{\theta}{X} = \frac{\likelihood{X}{\theta}\pdf{\theta}}{\int_{\theta\in\Theta} \likelihood{X}{\theta}\pdf{\theta} \rmd \theta}
+\end{align}
+
+The denominator comes from Bayes Theorem,
+\begin{align*}
+    \pdf{X} &= \int_{\theta\in\Theta} \pdf{X\cap\theta} \rmd \theta\\
+    \pdf{X\cap\theta} &= \likelihood{X}{\theta}\pdf{\theta} \\ 
+    \pdf{X} &= \int_{\theta\in\Theta} \likelihood{X}{\theta}\pdf{\theta} \rmd \theta
+\end{align*}
+
+\subsection{Bayesian Linear Regression}
+
+
+
+\section{Financial Random Walks}
+
+\begin{align*}
+    S_{t+1} = S_t + \mu \Delta t S_t + \sigma \sqrt{\Delta t} S_t Y_i
+\end{align*}
+
+
+\begin{align*}
+    S_{t+1} &= S_t\left(1 + \mu \Delta t + \sigma \sqrt{\Delta t} Y_i\right)
+\end{align*}
+
+$Y_i\sim \mathcal{N}(0,1)$ so $\sqrt{\Delta t} Y_i = \mathcal{N}(0,t)$, and by deffinition the Wiener process $W_t = \mathcal{N}(0,t)$.
+
+\begin{align*}
+    S_{t+\Delta t} = S_t\left(1 + \mu \Delta t + \sigma  W_{\Delta t}\right)
+\end{align*}
+
+taking the limit $\Delta t \to \rmd t$ we get the differential form of a random walk,
+
+\begin{align*}
+    S(t+\rmd t) = S(t)\left(1 + \mu \rmd t + \sigma  \rmd W \right)
+\end{align*}
+
+One way to solve this is to approximate the movement with a discrete time step. Combining multiple steps we get the equation,
+\begin{align*}
+    S_{t+n} &= S_t \prod_{i=1}^{n}\left(1 + \mu \Delta t + \sigma W_t\right)
+\end{align*}
+
+taking the log we find,
+\begin{align*}
+    \ln[S_{t+n}] &= \ln[S_t] + \sum_{i=1}^{n} \ln[1 + \mu \Delta t + \sigma W_t]
+\end{align*}
+
+if $\mu$ and $\sigma$ are small then we can approximate this as
+\begin{align*}
+    \ln[S_{t+n}] &= \ln[S_t] + \sum_{i=1}^{n} \mu \Delta t + \sigma W_t
+\end{align*}
+this is essentially a normal random walk where we have a deterministic drift $\mu$ and variance given by the Wiener process.
+
+\section{Expectations of stochastic models}
+
+If we presume there is no drift we assume there is no gains.
