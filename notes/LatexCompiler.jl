@@ -10,6 +10,8 @@ using HTTP, Sockets, JLD2
 # =====   Compilers   =====
 # =========================
 
+functions = 
+
 compilers(settings) = Dict(
     'b' => `bibtex $(settings["PROJECT_FOLDER"])/$(settings["AUX_FOLDER"])/$(settings["MAIN_FILE"])`,
     'x' => `xelatex --aux-directory=$(settings["PROJECT_FOLDER"])/$(settings["AUX_FOLDER"]) --output-directory=$(settings["PROJECT_FOLDER"])/$(settings["AUX_FOLDER"]) $(settings["MAIN_FILE"]).tex`,
@@ -58,6 +60,7 @@ function quick_Compile(settings)
 end
 
 function main()
+    settings = 
     success=false # for-if-end at home
     for (root, dirs, files) in walkdir(".")
         if any("settings.jld2" .== files)

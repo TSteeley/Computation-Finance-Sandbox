@@ -1,4 +1,4 @@
-\chapter{Fundamentals}
+\chapter{Mathematical Tools}
 
 \section{Stochastic Models and Inference}
 
@@ -48,8 +48,44 @@ and for $\sigma$,
 \end{align*}
 We give our estimates $\hat{\mu}$ and $\hat{\sigma}$ to signify that these are estimated values. If these formulas look familiar, they should, these are the mean and standard deviation formulas, the mean in particular you probably use far more often than you realise.
 
+\subsection{Example: Linear Regression}
+\label{subsec: LinearRegression}
 
+Linear regressions have a lot of different forms, that are in the end all special cases of the same fundamental idea, that is, there is a linear relationship between some predicting factors $\mathbf{x}$ and some resulting outcome $\mathbf{y}$. Suppose there is $p$ factors which influence the outcome of our observations. For each experiment $i\in[1,\dots,n]$ we an outcome $y_i$, and factors which we think predicts $y_i$ $\mathbf{x}_i$, where,
+\begin{align*}
+    \mathbf{x}_i &= \bmat{x_{i1} \\ x_{i2} \\ \vdots \\ x_{ip}}
+\end{align*}
+Our stochastic model is a weighted linear combination of the predictors $\mathbf{x}_i$ to predict the outcome $y_i$,
+\begin{align*}
+    y_{i} = \beta_{0} + x_{i1}\beta_{1} + \dots + x_{ip}\beta_{p} + \varepsilon_{i},\\ 
+\end{align*}
+Since we have a linear system, we can use the tools of linear algebra to clean it up,
+\begin{align*}
+    y_i &= \mathbf{x}_i\T \beta + \varepsilon_i\\
+    \mathbf{x}_i &= \bmat{1 \\ x_{i1} \\ x_{i2} \\ \vdots \\ x_{ip}} \\ 
+    \varepsilon_i &\sim \mathcal{N}\left(0, \sigma\right).
+\end{align*}
+Here we have redefined $\mathbf{x}_i$ to have 1 as its first element, this is so that the constant $\beta_{i0}$ is not interfered with. Next we build the likelihood function and assume that, as we essentially do for all linear regressions, that our data is iid and normally distributed,
+\begin{align*}
+    y_i &\sim \mathcal{N}\left(\mathbf{x}_i\T\beta, \sigma\right),\\
+    \likelihood{\mathbf{Y}}{\theta} &= \prod_{i=1}^{n} (2\pi)^{-\frac{1}{2}}\sigma^{-1}\exp{-\frac{1}{2\sigma^2}\left(y_i - \mathbf{x}_i\T\beta \right)^2}\\
+    &= (2\pi)^{-\frac{n}{2}}\sigma^{-n}\exp{-\frac{1}{2\sigma^2}\sum_{i=1}^{n}\left(\mathbf{y}_i - \mathbf{x}_i\T\beta\right)^2}.
+\end{align*}
+Our observations $y$ are distributed by the multivariate normal distribution with mean $\mathbf{x}_i\T\beta$ and with standard deviation $\sigma$. We can further simplify the likelihood by defining,
+\begin{align*}
+    \mathbf{X} &= \bmat{\mathbf{x}_1, & \mathbf{x}_2, & \dots, & \mathbf{x}_n}\T,\\
+    \mathbf{Y} &= \bmat{y_1, & y_2, & \dots, & y_n}\T,\\
+    \mathbf{Y} &= \mathbf{X}\beta + \varepsilon, \\
+    \likelihood{\mathbf{Y}}{\theta} &= (2\pi)^{-\frac{d}{2}}\sigma^{-n}\exp{-\frac{1}{2\sigma^2}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)}.
+\end{align*}
 
+Now, using some careful multivariate calculus we can find $\hat{\beta}$ and $\hat{\sigma}$ using maximum likelihood estimation,
+\begin{align*}
+    \pderiv{\loglikelihood{\mathbf{Y}}{\theta}}{\beta} &= \sigma^{-2}\mathbf{X}\T\left(\mathbf{Y} - \mathbf{X}\beta\right)=0\\
+    \hat{\beta} &= \left(\mathbf{X}\T\mathbf{X}\right)^{-1}\mathbf{X}\T\mathbf{Y}\\
+    \pderiv{\loglikelihood{\mathbf{Y}}{\theta}}{\sigma} &= -\frac{n}{\sigma} + \sigma^{-3}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)=0\\
+    \hat{\sigma} &= \sqrt{\frac{1}{n}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)}
+\end{align*}
 
 
 \section{Bayes Theorem and Bayesian Inference}
@@ -85,47 +121,71 @@ The denominator comes from Bayes Theorem,
 
 \subsection{Bayesian Linear Regression}
 
-
-
-\section{Financial Random Walks}
-
+We use the same example here as in \ref{subsec: LinearRegression}, we have a set of $n$ vectors of predictors $\mathbf{x}$ predicting an outcome $y$ which we assume are normally distributed,
 \begin{align*}
-    S_{t+1} = S_t + \mu \Delta t S_t + \sigma \sqrt{\Delta t} S_t Y_i
+    \likelihood{\mathbf{Y}}{\theta} &= \prod_{i=1}^{n} (2\pi)^{-\frac{1}{2}}\sigma^{-1}\exp{-\frac{1}{2\sigma^2}\left(y_i - \mathbf{x}_i\T\beta \right)^2}\\
+    &= (2\pi)^{-\frac{d}{2}}\sigma^{-n}\exp{-\frac{1}{2\sigma^2}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)}
+\end{align*}
+For Bayesian linear regressions we typically use the precision $\tau$ instead of the standard deviation $\sigma$ where $\tau = \sigma^{-2}$. This typically makes our lives just a little bit easier. The likelihood then is,
+\begin{align*}
+    (2\pi)^{-\frac{d}{2}}\tau^{-\frac{n}{2}}\exp{-\frac{\tau}{2}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)}.
 \end{align*}
 
+After determining the likelihood, the next step of bayesian inference is to define the prior. The prior distribution is a pre-determined probability distribution of the parameter values, here $\beta$ and $\tau$. We will use a \href{https://en.wikipedia.org/wiki/Conjugate_prior}{\textit{conjugate prior}} basically, making this a lot easier for ourselves. The prior distribution on our parameter values should reflect what we know \textit{a priori}, however, not to be too restrictive that it unduly influences the outcome. The weights $\beta\in\mathbb{R}$ so the most logical choice is the multivariate normal distribution $\mathrm{Normal}\cond{\beta}{\beta_0,\lambda^{-1}}$ ($\beta_0$ is the prior mean of $\beta$ and $\lambda^{-1}$ is the prior covariance) and the precision $\tau\in\mathbb{R}_+$ so it must be distributed by something which is in $\mathbb{R}_+$ and a gamma distribution is a logical choice $\mathrm{Gamma}\cond{\tau}{a,b}$. 
+
+Our can be a simple mixture of these distributions $\condpdf{\beta,\tau}{\beta_0,\lambda,a,b}=\mathrm{Normal}\cond{\beta}{\beta_0,\lambda^{-1}}\mathrm{Gamma}\cond{\tau}{a,b}$, however, it is actually better to use the \href{https://en.wikipedia.org/wiki/Normal-gamma_distribution}{\textit{Normal-gamma}} distribution. The normal-gamma is largely the same, however, $\beta$ is distributed by $\mathrm{Normal}\cond{\beta}{\beta_0, \left(\lambda\tau\right)^{-1}}$, i.e. we choose $\beta$ conditional on the precision. In truth this is simply done for mathematical convenience since the normal gamma distribution is the conjugate prior to the normal distribution where the mean and precision are unknown. 
 
 \begin{align*}
-    S_{t+1} &= S_t\left(1 + \mu \Delta t + \sigma \sqrt{\Delta t} Y_i\right)
+    \mathrm{NormalGamma}\cond{\beta,\tau}{\beta_0,\lambda,a,b} &= \left(2\pi\right)^{-\frac{d}{2}}|\lambda\tau|^{\frac{1}{2}}\exp{-\frac{\tau}{2}\left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right)}\frac{b^a}{\Gamma(a)}\tau^{a-1}e^{-b\tau}\\ 
+    &= \frac{b^a\sqrt{|\lambda|}}{(2\pi)^{-\frac{d}{2}}} \tau^{a-\frac{2-d}{2}}e^{-b\tau}\exp{-\frac{\tau}{2}\left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right)}
 \end{align*}
 
-$Y_i\sim \mathcal{N}(0,1)$ so $\sqrt{\Delta t} Y_i = \mathcal{N}(0,t)$, and by deffinition the Wiener process $W_t = \mathcal{N}(0,t)$.
+Frankly, this just \textit{is} a complicated looking distribution. Now, we can determine our posterior,
+\begin{align*}
+    \condpdf{\theta}{\mathbf{Y}} &= \frac{\likelihood{\mathbf{Y}}{\theta}\pdf{\theta}}{\int_{\theta\in\Theta}\likelihood{\mathbf{Y}}{\theta}\pdf{\theta}\rmd\theta}\\ 
+    &= \frac{(2\pi)^{-\frac{d}{2}}\tau^{\frac{n}{2}}\exp{-\frac{\tau}{2}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)}\frac{b^a\sqrt{|\lambda|}}{(2\pi)^{-\frac{d}{2}}} \tau^{a-\frac{2-d}{2}}e^{-b\tau}\exp{-\frac{\tau}{2}\left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right)}}{\int_0^\infty\int_{-\infty}^\infty \frac{b^a\sqrt{|\lambda|}}{(2\pi)^{-\frac{d}{2}}} \tau^{a-\frac{2-d}{2}}e^{-b\tau}\exp{-\frac{\tau}{2}\left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right)}\rmd\beta\rmd\tau}
+\end{align*}
+
+This is absolutely heinous looking to work with, so we will start again using the Bayesians favourite symbol, proportional to,
+\begin{align*}
+    \condpdf{\theta}{\mathbf{Y}} &\propto \likelihood{\mathbf{Y}}{\theta}\pdf{\theta}\\ 
+    &\propto (2\pi)^{-\frac{d}{2}}\tau^{\frac{n}{2}}\exp{-\frac{\tau}{2}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)}\frac{b^a\sqrt{|\lambda|}}{(2\pi)^{-\frac{d}{2}}} \tau^{a-\frac{2-d}{2}}e^{-b\tau}\exp{-\frac{\tau}{2}\left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right)}\\ 
+\end{align*}
+Our goal is to get this into the form of a known probability density. Since we are using conjugate priors it will be the normal-gamma distribution. First we drop every multiplicative factor that is not our data or parameters,
+\begin{align*}
+    \condpdf{\theta}{\mathbf{Y}} &\propto \tau^{a+\frac{n}{2}-\frac{2-d}{2}}e^{-b\tau} \exp{-\frac{\tau}{2}\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right)-\frac{\tau}{2}\left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right)},
+\end{align*}
+next we complete the square such that $\beta$ is the subject,
+\begin{align*}
+    \condpdf{\theta}{\mathbf{Y}} &\propto \tau^{a+\frac{n}{2}-\frac{2-d}{2}}e^{-b\tau} \exp{\left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right) + \left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right)}^{-\frac{\tau}{2}},\\
+\end{align*}
+\begin{align*}
+    &= \left(\mathbf{Y} - \mathbf{X}\beta\right)\T\left(\mathbf{Y} - \mathbf{X}\beta\right) + \left(\beta-\beta_0\right)\T\lambda\left(\beta-\beta_0\right) \\ 
+    &= \mathbf{Y}\T \mathbf{Y} - Y\T \mathbf{X}\beta - \beta\T \mathbf{X}\T \mathbf{Y} + \beta^T \mathbf{X}\T \mathbf{X} \beta + \beta\T \lambda \beta - \beta\T \lambda \beta_0 - \beta_0\T \lambda \beta + \beta_0\T \lambda\beta_0\\ 
+    &= \beta\T \left(\mathbf{X}\T \mathbf{X} + \lambda \right)\beta - \left(Y\T \mathbf{X} + \beta_0\T\lambda \right)\beta - \beta\T \left(\mathbf{X}\T \mathbf{Y} + \lambda\beta_0\T\right) + \mathbf{Y}\T \mathbf{Y} + \beta_0\T \lambda\beta_0 \\ 
+    &= \left(\beta - \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\right)\T\left(\mathbf{X}\T \mathbf{X} + \lambda\right)\left(\beta - \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\right) + c \\ 
+    c &= \mathbf{Y}\T \mathbf{Y} + \beta_0\T \lambda\beta_0 - \left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\T \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)
+\end{align*}
 
 \begin{align*}
-    S_{t+\Delta t} = S_t\left(1 + \mu \Delta t + \sigma  W_{\Delta t}\right)
+    \condpdf{\theta}{\mathbf{Y}} &\propto \tau^{a+\frac{n}{2}-\frac{2-d}{2}}e^{-\tau\left(b+\frac{1}{2}\left( \mathbf{Y}\T \mathbf{Y} + \beta_0\T \lambda\beta_0 - \left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\T \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\right)\right)}\dots \\  
+    & \exp{\frac{\tau}{2}\left(\beta - \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\right)\T\left(\mathbf{X}\T \mathbf{X} + \lambda\right)\left(\beta - \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\right)},\\
 \end{align*}
 
-taking the limit $\Delta t \to \rmd t$ we get the differential form of a random walk,
-
+Finally, our posterior is a normal-gamma distribution, where the marginal posterior distributions of $\tau$ and $\beta$ is
 \begin{align*}
-    S(t+\rmd t) = S(t)\left(1 + \mu \rmd t + \sigma  \rmd W \right)
+    \tau &\sim \mathrm{Gamma}\left(\tau \mid a+\frac{n}{2}, b+\frac{1}{2}\left( \mathbf{Y}\T \mathbf{Y} - \left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\T \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right)\right)\right)\\ 
+    \beta&\sim \mathrm{Normal}\left(\beta\mid \left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\left(\mathbf{X}\T \mathbf{Y} + \lambda \beta_0\T \right), \tau^{-1}\left(\mathbf{X}\T \mathbf{X} + \lambda\right)^{-1}\right).
 \end{align*}
 
-One way to solve this is to approximate the movement with a discrete time step. Combining multiple steps we get the equation,
-\begin{align*}
-    S_{t+n} &= S_t \prod_{i=1}^{n}\left(1 + \mu \Delta t + \sigma W_t\right)
-\end{align*}
+I think quite clearly the Bayesian linear regression involves more work, however, it gives us in return a more powerful solution, such as credible intervals which can help us more meaningfully reject parameters.
 
-taking the log we find,
-\begin{align*}
-    \ln[S_{t+n}] &= \ln[S_t] + \sum_{i=1}^{n} \ln[1 + \mu \Delta t + \sigma W_t]
-\end{align*}
+% \subsection{A Far More Complicated Bayesian Linear Regression}
 
-if $\mu$ and $\sigma$ are small then we can approximate this as
-\begin{align*}
-    \ln[S_{t+n}] &= \ln[S_t] + \sum_{i=1}^{n} \mu \Delta t + \sigma W_t
-\end{align*}
-this is essentially a normal random walk where we have a deterministic drift $\mu$ and variance given by the Wiener process.
+% This is a problem I thought of which felt like a very simple extension to the linear regression but however, had a very complex solution. What if the variance is not constant?
+% \begin{align*}
+%     y_i &= \mathbf{x_i}\T \beta + \varepsilon \sigma(\mathbf{x_i}), \\ 
+%     \sigma(\mathbf{x_i}) &= e^{-\frac{1}{2}\mathbf{x_i}\T \gamma}, \\ 
+%     y_i \sim \mathrm{Normal}\left(\mathbf{x_i}\T \beta, e^{-\frac{1}{2}\mathbf{x_i}\T \gamma}\right).
+% \end{align*}
 
-\section{Expectations of stochastic models}
-
-If we presume there is no drift we assume there is no gains.

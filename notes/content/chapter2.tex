@@ -1,0 +1,39 @@
+\chapter{Financial Random Walks}
+
+\section{Discrete Time Continous Space Financial Random Walks}
+
+If you look on the wikipdeia page financial random walks you will be greeted with the following equation,
+\begin{align}
+    S_{t+1} = S_t + \mu \Delta t S_t + \sigma \sqrt{\Delta t} S_t Y_i. \label{eqn:WikiRW}
+\end{align}
+This is a fairly typical random walk, except that our drift depends one our position $S_t$. If we factor $S_t$ we find,
+\begin{align*}
+    S_{t+1} &= S_t\left(1 + \mu \Delta t + \sigma \sqrt{\Delta t} Y_i\right).
+\end{align*}
+This gives us a recurrence relationship, thus we can deffine,
+\begin{align*}
+    S_{t+n} = S_t\prod_{i=1}^{n}\left(1 + \mu \Delta t + \sigma  W_{i}\right),
+\end{align*}
+taking the log we find,
+\begin{align*}
+    \ln{S_{t+n}} &= \ln{S_t} + \sum_{i=1}^{n} \ln{1 + \mu \Delta t + \sigma W_i}.
+\end{align*}
+To get to where I want to go next, we have two paths, by small value approximation, or by argument. I choose to argue. My argument is, the original random walk from wikipedia \eqref{eqn:WikiRW} is flawed. We cannot have negative prices, this is an inutuive fact, however, this equation is $\Delta t$ is large enough will give negative prices, the proper error here should not be able to make our prices negative. The log of the price however, negative values are fair game. I propose therefore this random walk,
+\begin{align}
+    \ln{S_{t+n}} &= \ln{S_t} + \sum_{i=1}^{n} \mu \Delta t + \sigma W_t. \label{eqn:LogRW}
+\end{align}
+% We will explore this more in later sections.
+
+\subsection{Time Series Models}
+
+
+
+\subsubsection{The AR Model}
+
+
+\section{Continuous Time Continous Space Financial Random Walks}
+
+\eqref{eqn:LogRW} is a discrete time continuous space random walk. By taking the limit $\Delta t \to \rmd t$ we get a continuous time continuous space random walk,
+\begin{align*}
+    \ln{S(t+\rmd t)} = \ln{S_t} + \mu\rmd t + \sigma \rmd W
+\end{align*}

@@ -84,3 +84,23 @@ Z = int(f, 0, Inf)
 fplot((0,0.3), x -> f(x)/Z)
 histogram!(rand(pΛ, n), normalize=:pdf)
 vline!([(1/σt)^2, N/((Y - X*β)'*(Y - X*β))])
+
+
+n = 10_000
+p = 10
+d = 5
+X = hcat(ones(n), randn(n, p-1))
+βt = randn(p, d)
+Y = X*βt + randn(size(Y))*1e-2
+
+Y[1,:]
+
+β' * X[1,:]
+
+(Y - X*β) * inv(Σ)
+
+X[1,:]'*βt
+
+β = inv(X'*X)*X'*Y
+
+[1, zeros(p-1)...]' * βt
