@@ -1,10 +1,10 @@
 module FinData
     using HTTP, JSON, DataFrames, TOML
-    using Dates, TimeZones, JLD2
+    using Dates, TimeZones, JLD2, ProgressBars
 
-    export fetchCryptoData, loadCryptoData
-    export getCryptoQuotes, loadCryptoQuotes
+    export fetchCryptoBars, loadCryptoBars, gatherCryptoBars, updateBars
+    export fetchCryptoQuotes, loadCryptoQuotes, gatherCryptoQuotes, updateQuotes
 
-    include("CryptoData.jl")
+    include("CryptoBars.jl")
     include("cryptoQuotes.jl")
 end

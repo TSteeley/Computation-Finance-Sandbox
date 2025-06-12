@@ -11,18 +11,65 @@
 
 using HTTP, JSON, DataFrames, TOML
 using Dates, TimeZones, JLD2
-using CustomPlots
-include("../functions.jl")
+
+# ============================================================
+# ===================   Helper Functions   ===================
+# ============================================================
+
+
+# Added a constructor for TimePeriod. Give a string and it returns a time period with the most specific type.
+TIME_UNITS = Dict(
+    r"^(ns|nanosecond)" => Nanosecond,
+    r"^(us|microsecond)" => Microsecond,
+    r"^(ms|millisecond)" => Millisecond,
+    r"^(S|Second)$" => Second,
+    r"^(T|Min)$" => Minute,
+    r"^(H|Hour)$" => Hour,
+    r"^(D|Day)$" => Day,
+    r"^(W|Week)$" => Week,
+    r"^(M|Month)$" => Month,
+    r"^(Y|Year)$" => Year
+)
+@doc"""
+# Period
+
+Convert a string to a valid Period. Type of output is most specific type which is a sub-type of Period.
+
+## Valid periods;
+- ns, nanosecond  => Nanosecond
+- us, microsecond => Microsecond
+- ms, millisecond => Millisecond
+- S,  Second      => Second
+- T,  Min         => Minute
+- H,  Hour        => Hour
+- D,  Day         => Day
+- W,  Week        => Week
+- M,  Month       => Month
+- Y,  Year        => Year
+"""
+function Period(str::String)
+    m = match(r"^(\d+)\s*([A-Za-z]+)$", strip(str))
+    m === nothing && error("Invalid format: $str")
+
+    n = parse(Int, m.captures[1])
+    suffix = m.captures[2]
+
+    for (pattern, func) in TIME_UNITS
+        if occursin(pattern, suffix)
+            return func(n)
+        end
+    end
+    error("$str not recognised")
+end
 
 # ============================================================
 # =====================   Test values   ======================
 # ============================================================
 
-symbol = "BTC/USD"
-startTime = ""
+symbol = "BTC"
+startTime = "2023-01-01"
 endTime = ""
-limit = 10000
-tstep = Minute(1)
+timeFrame = "1T"
 
 
 # ============================================================
@@ -33,7 +80,7 @@ const headers = Dict(
     "accept" => "application/json"
 )
 
-function sendQuery(query::Dict)
+function sendBarQuery(query::Dict)
     return HTTP.get(
         "https://data.alpaca.markets/v1beta3/crypto/us/bars",
         headers,
@@ -45,61 +92,66 @@ end
 # ==========   All in one crypto data get function ===========
 # ============================================================
 
-@doc"""
-# getCryptoData
+parseBarTime(str::String) = DateTime(str[1:end-1])
 
-Do not use directly. Use fetchCryptoData instead.
+@doc"""
+# getCryptoBars
+
+Do not use directly. Use fetchCryptoBars instead.
 
 ## Args:
  - symbol: e.g. "BTC", "LTC"
  - startTime: Start of period, defaults to start of day (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
  - endTime: End of period, defaults to the current time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
- - limit: max number of data points recieved 1-10_000, defaults to 1_000
 """
-function getCryptoData(symbol::String; startTime::Union{String, DateTime}="", endTime::Union{String, DateTime}="", limit::Union{Int, String}=10000)
-
+function getCryptoBars(symbol::String, startTime::DateTime, endTime::DateTime)
     symbol = replace(symbol, r"/USD$" => "")
-
-    metaData = TOML.parsefile("./data/data.toml")
-
-    replace(endTime, r"^(.*T.*)$" => s"\1Z")
+    metaData = TOML.parsefile("data/cryptoBars/data.toml")
     
     query = Dict(
         "symbols"   => symbol*"/USD",
         "timeframe" => "1T",
-        "start"     => replace(startTime, r"^(.*T.*[^Z])$" => s"\1Z"),
-        "end"       => replace(endTime, r"^(.*T.*[^Z])$" => s"\1Z"),
-        "limit"     => limit,
+        "start"     => replace(string(startTime), r"^(.*T.*[^Z])$" => s"\1Z"),
+        "end"       => replace(string(endTime), r"^(.*T.*[^Z])$" => s"\1Z"),
+        "limit"     => 10_000,
         "sort"      => "asc",
     )
 
-    data = sendQuery(query)
+    data = sendBarQuery(query)
 
-    barData = DataFrames.DataFrame(data["bars"][symbol*"/USD"])
-    transform!(barData, :v => ByRow(v -> Float64(v)) => :v)
+    if .! isnothing(data["next_page_token"])
+        barData = DataFrames.DataFrame(data["bars"][symbol*"/USD"])
 
-    while .! isnothing(data["next_page_token"])
-        query["page_token"] = data["next_page_token"]
-        data = sendQuery(query)
+        while .! isnothing(data["next_page_token"])
+            query["page_token"] = data["next_page_token"]
+            data = sendBarQuery(query)
 
-        append!(barData, DataFrames.DataFrame(data["bars"][symbol*"/USD"]))
+            append!(barData, DataFrames.DataFrame(data["bars"][symbol*"/USD"]))
+        end
+
+        transform!(barData, :t => ByRow(parseBarTime) => :t)
+
+        if "$symbol.jld2" ∈ readdir("data/cryptoBars/") # if some data already saved
+            newData = copy(barData)
+            @load "data/cryptoBars/$symbol.jld2" barData
+            append!(barData, newData) |> unique!
+        end
+        
+        sort!(barData, :t)
+        @save "data/cryptoBars/$symbol.jld2" barData
     end
 
-    transform!(barData, :t => ByRow(t -> ZonedDateTime(t)) => :t)
-
-    if any(readdir("data/") .== "$symbol.jld2") # if some data already saved
-        newData = copy(barData)
-        @load "data/$symbol.jld2" barData
-        append!(barData, newData) |> unique!
+    if symbol ∈ keys(metaData)
+        metaData[symbol] = Dict(
+            "start" => min(startTime, metaData[symbol]["start"]),
+            "end" => max(endTime, metaData[symbol]["end"])
+        )
+    else
+        metaData[symbol] = Dict(
+            "start" => startTime,
+            "end" => endTime,
+        )
     end
-    
-    sort!(barData, :t)
-    @save "data/$symbol.jld2" barData
-
-    metaData[symbol] = Dict(
-        "start" => barData[!,:t] |> minimum |> DateTime,
-        "end" => barData[!,:t] |> maximum |> DateTime
-    )
 
     open("./data/data.toml", "w") do io
         TOML.print(io, metaData)
@@ -109,7 +161,7 @@ function getCryptoData(symbol::String; startTime::Union{String, DateTime}="", en
 end
 
 @doc"""
-# fetchCryptoData
+# fetchCryptoBars
 
 Function grabs already saved data or gets more data if not found.
 
@@ -117,7 +169,7 @@ Function grabs already saved data or gets more data if not found.
  - symbol: e.g. "BTC", "LTC"
  - startTime: Start of period, defaults to start of day (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
  - endTime: End of period, defaults to the current time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
- - timeframe: Dates TimePeriod or
+ - timeFrame: Dates TimePeriod or
     - [1-59]Min or [1-59]T; by minute aggregation
     - [1-23]Hour or [1-23]H; by hour aggregation
     - 1Day or 1D; by day aggregation
@@ -125,84 +177,74 @@ Function grabs already saved data or gets more data if not found.
     - [1,2,3,4,6,12]Month or [1,2,3,4,6,12]M; by month aggregation
 
 """
-function fetchCryptoData(symbol::String; startTime::Union{String, DateTime}="", endTime::Union{String, DateTime}="", step::Union{String, TimePeriod}=Minute(1))
-
+function fetchCryptoBars(symbol::String; startTime::String="", endTime::String="", timeFrame::T=Minute(1)) where T <: Period
     symbol = replace(symbol, r"/USD" => "")
-    metaData = TOML.parsefile("./data/data.toml")
+    metaData = TOML.parsefile("data/cryptoBars/data.toml")
 
     # Check if we have downloaded data for this symbol before
-    if haskey(metaData, symbol)
-        startTime = isempty(startTime) ? string(metaData[symbol]["start"]) : startTime
-        endTime = isempty(endTime) ? string(metaData[symbol]["end"]) : endTime
-
-        # Ensure all requested data exists
-        # If start is before earliest data, get earlier data
-        if DateTime(startTime) < metaData[symbol]["start"]
-            getCryptoData(symbol, startTime = startTime, endTime = string(metaData[symbol]["start"]))
-        end
-
-        # If end is after latest data, update data
-        if DateTime(endTime) > metaData[symbol]["end"]
-            getCryptoData(symbol, startTime = string(metaData[symbol]["end"]), endTime = endTime)
-        end
+    if symbol ∉ keys(metaData)
+        startTime = isempty(startTime) ? error("Data for $(symbol) has not been collected previously. Specify a start time to collect new data.") : DateTime(startTime)
+        endTime = isempty(endTime) ? now() : DateTime(endTime)
+        getCryptoBars(symbol, startTime, endTime)
+    elseif isempty(startTime) && isempty(endTime)
+        @load "data/cryptoBars/$symbol.jld2" barData
+        return barData
     else
-        startTime = isempty(startTime) ? string(now() - Dates.Month(3)) : startTime
-        endTime = isempty(endTime) ? string(now()) : endTime
+        startTime = isempty(startTime) ? metaData[symbol]["start"] : DateTime(startTime)
+        endTime = isempty(endTime) ? metaData[symbol]["end"] : DateTime(endTime)
 
-        getCryptoData(symbol, startTime = startTime, endTime = endTime)
+        if startTime < metaData[symbol]["start"]
+            getCryptoBars(symbol, startTime, metaData[symbol]["start"])
+        end
+        if endTime > metaData[symbol]["end"]
+            getCryptoBars(symbol, metaData[symbol]["end"], endTime)
+        end
     end
     
     # Load data
-    @load "data/$symbol.jld2" barData
+    @load "data/cryptoBars/$symbol.jld2" barData
 
     # Keep only in window
-    deleteat!(barData, .! (DateTime(startTime) .≤ DateTime.(barData[!,:t]) .≤ DateTime(endTime)))
-
-    typeof(tstep) == String
+    filter!(x -> startTime < x.t < endTime, barData)
 
     # Group by time period
-    if tstep == "1T" || tstep == "1Min" || tstep == ""
-        return barData
-    elseif occursin("T", tstep) || occursin("Min", tstep)
-        n = parse(Int, replace(tstep, r"(T|Min|Mins)" => ""))
-        T = barData[1,:t]
-        transform!(barData, :t => ByRow(t -> T + Dates.Minute(n*floor.(Int, (t - T).value ./ (60000n)))) => :t)
-    elseif occursin("H", tstep) || occursin("Hour", tstep)
-        n = parse(Int, replace(tstep, r"(H|Hour|Hours)" => ""))
-        T = barData[1,:t]
-        transform!(barData, :t => ByRow(t -> T + Dates.Hour(n*floor.(Int, (t - T).value ./ (60000n*60)))) => :t)
-    elseif occursin("D", tstep) || occursin("Day", tstep)
-        n = parse(Int, replace(tstep, r"(D|Day|Days)" => ""))
-        T = Date(barData[1,:t])
-        transform!(barData, :t => ByRow(t -> T + Dates.Day(n*floor.(Int, (Date(t) - T).value ./ n))) => :t)
-    elseif occursin("W", tstep) || occursin("Week", tstep)
-        n = parse(Int, replace(tstep, r"(W|Week|Weeks)" => ""))
-        T = Date(barData[1,:t])
-        transform!(barData, :t => ByRow(t -> T + Dates.Week(n*floor.(Int, (Date(t) - T).value ./ (7n)))) => :t)
-    elseif occursin("M", tstep) || occursin("Month", tstep)
-        n = parse(Int, replace(tstep, r"(M|Month|Months)" => ""))
-        T = Date(barData[1,:t])
-        transform!(barData, :t => ByRow(t -> T + Dates.Month(n*floor(Int, ((Month(t) - Month.(T)).value  + 12(Year(t) - Year(T)).value) ./ n))) => :t)
-    end
-    
-    groups = groupby(barData, :t)
-
-    barData_Combined = combine(groups, 
+    transform!(barData, :t => ByRow(t -> round(t, timeFrame, RoundDown)) => :t)
+    return combine(groupby(barData, :t),
         :v => sum => :v, 
         :c => last => :c,
         :o => first => :o,
-        [:vw, :v] => ((vw, v) -> sum(v) == 0 ? 0 : sum(vw .* v)/sum(v)) => :vw,
+        [:vw, :v] => ((vw, v) -> sum(v) == 0 ? 0 : sum(vw .* v)/sum(v)) => :vw, # Approximate VWA
         :l => minimum => :l,
         :h => maximum => :h,
         :n => sum => :n
     )
+end
 
-    return barData_Combined
+function gatherCryptoBars(symbol::String; startTime::String="", endTime::String="")
+    symbol = replace(symbol, r"/USD" => "")
+    metaData = TOML.parsefile("data/cryptoBars/data.toml")
+
+    # Check if we have downloaded data for this symbol before
+    if symbol ∉ keys(metaData)
+        startTime = isempty(startTime) ? error("Data for $(symbol) has not been collected previously. Specify a start time to collect new data.") : DateTime(startTime)
+        endTime = isempty(endTime) ? now() : DateTime(endTime)
+        getCryptoBars(symbol, startTime, endTime)
+    else
+        startTime = isempty(startTime) ? metaData[symbol]["start"] : DateTime(startTime)
+        endTime = isempty(endTime) ? metaData[symbol]["end"] : DateTime(endTime)
+
+        if startTime < metaData[symbol]["start"]
+            getCryptoBars(symbol, startTime, metaData[symbol]["start"])
+        end
+        if endTime > metaData[symbol]["end"]
+            getCryptoBars(symbol, metaData[symbol]["end"], endTime)
+        end
+    end
 end
 
 
 @doc"""
-# loadCryptoData
+# loadCryptoBars
 
 Function only grabs already saved data.
 
@@ -220,42 +262,59 @@ Will not find new data.
     - [1,2,3,4,6,12]Month or [1,2,3,4,6,12]M; by month aggregation
 
 """
-function loadCryptoData(symbol::String; startTime::String="", endTime::String="", timeFrame::String="")
-
+function loadCryptoBars(symbol::String; startTime::String="", endTime::String="", timeFrame::String="")
     symbol = replace(symbol, r"/USD" => "")
-    metaData = TOML.parsefile("./data/data.toml")
+    metaData = TOML.parsefile("data/cryptoBars/data.toml")
 
     startTime = isempty(startTime) ? string(metaData[symbol]["start"]) : startTime
     endTime = isempty(endTime) ? string(metaData[symbol]["end"]) : endTime
 
     # Load data
-    @load "data/$symbol.jld2" barData
+    @load "data/cryptoBars/$symbol.jld2" barData
 
-    # Keep only in window
-    deleteat!(barData, .! (DateTime(startTime) .≤ DateTime.(barData[!,:t]) .≤ DateTime(endTime)))
+    if isempty(timeFrame)
+        return barData
+    else
+        timeFrame = Period(timeFrame)
+        # Keep only in window
+        transform!(barData, :t => ByRow(t -> round(t, timeFrame, RoundDown)) => :t)
+        filter!(x -> startTime .≤ x.t .≤ endTime, barData)
 
-    # Group by time period
-    if timeFrame == "1T" || timeFrame == "1Min" || timeFrame == ""
+        # Group by time period
+        return combine(groupby(barData, :t),
+            :v => sum => :v, 
+            :c => last => :c,
+            :o => first => :o,
+            [:vw, :v] => ((vw, v) -> sum(v) == 0 ? 0 : sum(vw .* v)/sum(v)) => :vw, # Approximate VWA
+            :l => minimum => :l,
+            :h => maximum => :h,
+            :n => sum => :n
+        )
+    end
+end
+
+function loadCryptoBars(symbol::String; timeFrame::T=Minute(1)) where T <: Period
+    symbol = replace(symbol, r"/USD" => "")
+    @load "data/cryptoBars/$symbol.jld2" barData
+    if timeFrame == Minute(1)
         return barData
     end
-    
-    tstep = TimePeriod(timeFrame)
-    transform!(barData, :t => ByRow(t -> round(t, tstep, RoundDown)) => :t)
-    
-    groups = groupby(barData, :t)
 
-    barData_Combined = combine(groups, 
+    transform!(barData, :t => ByRow(t -> round(t, timeFrame, RoundDown)) => :t)
+    return combine(groupby(barData, :t),
         :v => sum => :v, 
         :c => last => :c,
         :o => first => :o,
-        [:vw, :v] => ((vw, v) -> sum(v) == 0 ? 0 : sum(vw .* v)/sum(v)) => :vw,
+        [:vw, :v] => ((vw, v) -> sum(v) == 0 ? 0 : sum(vw .* v)/sum(v)) => :vw, # Approximate VWA
         :l => minimum => :l,
         :h => maximum => :h,
         :n => sum => :n
     )
-
-    return barData_Combined
 end
+
+
+# loadCryptoBars("BTC", timeStep = "5T")
+# loadCryptoBars("BTC", timeFrame=Minute(5))
 
 # ============================================================
 # =======================   testing   ========================
@@ -265,32 +324,7 @@ validPeriods = ["T","Min","Mins","H","Hour","Hours","D","Day","Days","W","Week",
 
 tests = ["$(rand(1:60))$(rand(validPeriods))" for _ in 1:100]
 
-TIME_UNITS = Dict(
-    r"^(ns|nanosecond)" => Nanosecond,
-    r"^(us|microsecond)" => Microsecond,
-    r"^(ms|millisecond)" => Millisecond,
-    r"^(S|Second)$" => Second,
-    r"^(T|Min)$" => Minute,
-    r"^(H|Hour)$" => Hour,
-    r"^(D|Day)$" => Day,
-    r"^(W|Week)$" => Week,
-    r"^(M|Month)$" => Month,
-    r"^(Y|Year)$" => Year
-)
-function TimePeriod(str::String)
-    m = match(r"^(\d+)\s*([A-Za-z]+)$", strip(str))
-    m === nothing && error("Invalid format: $str")
 
-    n = parse(Int, m.captures[1])
-    suffix = m.captures[2]
-
-    for (pattern, func) in TIME_UNITS
-        if occursin(pattern, suffix)
-            return func(n)
-        end
-    end
-    error("$str not recognised")
-end
 
 timeFrame = "5D"
 

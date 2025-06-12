@@ -1,48 +1,8 @@
 using Distributions, StatsBase
 using Plots, CustomPlots, ProgressBars
 using FinData, Dates, DataFrames
-using LinearAlgebra
-using SpecialFunctions
-include("../int.jl")
+using LinearAlgebra, SpecialFunctions
 include("../functions.jl")
-
-# ============================================================
-# ==================   Load and Prep Data   ==================
-# ============================================================
-
-tStep = Minute(5)
-data = loadCryptoQuotes("BTC")
-transform!(data, :t => ByRow(t -> round(t, tStep, RoundDown)) => :t)
-
-minData = combine(groupby(data, :t),
-    :bp => mean => :bp,
-    # :ap => mean => :ap,
-)
-
-trainPeriod = Week(3)
-testPeriod = Week(1)
-
-r = sample(minData.t[1], minData.t[end]-(trainPeriod+testPeriod+Week(1)), step = tStep)
-train = filter(x -> r .≤ x.t .< r+trainPeriod, minData)
-test = filter(x -> r+trainPeriod .≤ x.t .< r+trainPeriod+testPeriod, minData)
-
-fillMissing!(train, step = tStep)
-fillMissing!(test, step = tStep)
-
-plot(train.t, train.bp)
-plot!(test.t, test.bp)
-
-# ============================================================
-# ======================   ARIMA model   =====================
-# ============================================================
-
-transform!(train, :bp => ByRow(log) => :X)
-transform!(test, :bp => ByRow(log) => :X)
-
-P, D, Q = 5, 1, 1
-
-N = length(train.X)-P-D
-M = P+1
 
 function Format_TS_data(TS::Vector{T}, P::Int, D::Int) where T <: Real
     if D != 0
@@ -59,12 +19,52 @@ function Format_TS_data(TS::Vector{T}, P::Int, D::Int) where T <: Real
     return X, Y
 end
 
+# ============================================================
+# ==================   Load and Prep Data   ==================
+# ============================================================
+
+tStep = Minute(5)
+data = loadCryptoQuotes("BTC")
+filter!(d -> d.as .!= 0, data)
+
+transform!(data, :t => ByRow(t -> round(t, tStep, RoundDown)) => :t)
+
+minData = combine(groupby(data, :t),
+    :bp => last => :bp,
+    # :ap => mean => :ap,
+)
+
+trainPeriod = Week(3)
+testPeriod = Week(1)
+
+r = sample(minData.t[1], minData.t[end]-(trainPeriod+testPeriod+Week(1)), step = tStep)
+train = filter(x -> r .≤ x.t .< r+trainPeriod, minData)
+test = filter(x -> r+trainPeriod .≤ x.t .< r+trainPeriod+testPeriod, minData)
+
+fillMissing!(train, step = tStep)
+fillMissing!(test, step = tStep)
+
+transform!(train, :bp => ByRow(log) => :X)
+transform!(test, :bp => ByRow(log) => :X)
+
+plot(train.t, train.X)
+plot!(test.t, test.X)
+
+# ============================================================
+# ======================   ARIMA model   =====================
+# ============================================================
+
+P, D, Q = 5, 1, 1
+
+N = length(train.X)-P-D
+M = P+1
+
 X, Y = Format_TS_data(train.X, P, D)
 N, M = size(X)
 
 β₀ = ones(M)*0
-λ = I(M) * 50
-a = 0
+λ = I(M)
+a = 1
 u = 0
 
 pΛ = Gamma(a + N/2, inv(u+0.5*(Y'*Y + β₀'*λ*β₀ - (X'*Y+λ*β₀)'*inv(X'*X+λ)*(X'*Y+λ*β₀))))
@@ -104,6 +104,18 @@ plot!(test.t[1:end-D], y, la = 0.2, label = "Model")
 
 histogram(diff(test.X), normalize = :pdf)
 histogram!(y, normalize = :pdf)
+
+n = 5000
+v = zeros(n)
+for i in 1:n
+    v[i] = rand(pβ(rand(pΛ))) |> x -> x[1] / sum(x[2:end])
+end
+
+histogram(v[-1 .< v .< 1])
+vline!([mean(v)])
+
+vline!([inv(X'*X)*X'*Y |> x -> x[1] / sum(x[2:end])])
+
 
 # ============================================================
 # ==============   Variable Precision model   ================

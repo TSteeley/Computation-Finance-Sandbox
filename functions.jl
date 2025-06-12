@@ -50,3 +50,10 @@ function int(f::Function, a::Number, b::Number; h::Number = 25)
     F = x -> (f∘g)(x)
     return (dg(0)*F(0) + sum(i -> dg(i)*F(i)+dg(-i)*F(-i), 1:ceil(Int, 3.1h)))*π/h
 end
+
+function ±(x, y)
+    return x .+ [1, -1] .* y
+end
+function ∓(x, y)
+    return x .+ [-1, 1] .* y
+end

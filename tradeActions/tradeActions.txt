@@ -1,0 +1,1 @@
+I created this folder to have place to test code and mess around with placing and delaing with orders. The 'complete' code from here forms the module TradeActions
