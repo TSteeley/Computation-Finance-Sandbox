@@ -1,16 +1,18 @@
 function getQuotes(query::Dict)
-    headers = Dict(
-        "accept" => "application/json"
-    )
     return HTTP.get(
         "https://data.alpaca.markets/v1beta3/crypto/us/quotes",
-        headers,
+        Dict("accept" => "application/json"),
         query=query
     ).body |> String |> JSON.parse
 end
 
-parseTime(t::String) = split(t, ".") |> t -> DateTime(t[1]) + Nanosecond(parse(Int, t[2][1:end-1]))
+parseTime(t::String) = split(t, ".") |> t -> length(t) == 2 ? DateTime(t[1]) + Nanosecond(parse(Int, t[2][1:end-1])) :  DateTime(t[1][1:end-1])
 
+@doc"""
+loadCryptoQuotes(symbol::String)
+
+Returns quoteData for Symbol if it exists.
+"""
 function loadCryptoQuotes(symbol::String)
     symbol = replace(symbol, r"/USD$" => "")
     try
@@ -23,9 +25,9 @@ end
 
 
 @doc"""
-# fetchCryptoQuotes
+fetchCryptoQuotes
 
-## Args
+# Args
  - symbol: e.g. "BTC", "LTC"
  - startTime: Start of period (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
  - endTime: End of period (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
@@ -59,14 +61,9 @@ function fetchCryptoQuotes(symbol::String; startTime::String="", endTime::String
     return quoteData
 end
 
-
-@doc"""
-# getCryptoQuotes
-
-Don't use directly, use fetchCryptoQuotes
-
-"""
+# Because this function always tries to download data it is not used directly. Instead it is called by other functions to get missing data
 function getCryptoQuotes(symbol::String, startTime::DateTime, endTime::DateTime)
+    symbol = replace(symbol, r"/USD$" => "")
     metaData = TOML.parsefile("data/cryptoQuotes/data.toml")
     
     query = Dict(
@@ -79,41 +76,47 @@ function getCryptoQuotes(symbol::String, startTime::DateTime, endTime::DateTime)
     )
     
     data = getQuotes(query)
-    
-    if .! isnothing(data["next_page_token"])
-        quoteData = DataFrames.DataFrame(data["quotes"][symbol*"/USD"])
-        
-        while .! isnothing(data["next_page_token"])
-            query["page_token"] = data["next_page_token"]
-            data = getQuotes(query)
-        
-            append!(quoteData, DataFrames.DataFrame(data["quotes"][symbol*"/USD"]))
-        end
-        
-        transform!(quoteData, :t => ByRow(parseTime) => :t)
-        
-        if "$symbol.jld2" ∈ readdir("data/cryptoQuotes/") # if some data already saved
-            newData = copy(quoteData)
-            @load "data/cryptoQuotes/$symbol.jld2" quoteData
-            append!(quoteData, newData) |> unique!
-        end
-        
-        sort!(quoteData, :t)
-        @save "data/cryptoQuotes/$symbol.jld2" quoteData
+    # If there is no new data to grab stop here
+    .! isempty(data["quotes"]) || return
+    # If there is new data initaialise a DataFrame for quoteData
+    quoteData = DataFrames.DataFrame(data["quotes"][symbol*"/USD"])
+    # While there is next page tokens gat data and add it to quoteData
+    while .! isnothing(data["next_page_token"])
+        # Update query with next page token
+        query["page_token"] = data["next_page_token"]
+        # Get next page of data
+        data = getQuotes(query)
+        # Append the new data to quoteData
+        append!(quoteData, DataFrames.DataFrame(data["quotes"][symbol*"/USD"]))
     end
+    # Parse column t from string to DateTime
+    transform!(quoteData, :t => ByRow(parseTime) => :t)
+
+    # If other data exists; append new data to old
+    if "$symbol.jld2" ∈ readdir("data/cryptoQuotes/") 
+        newData = copy(quoteData)
+        @load "data/cryptoQuotes/$symbol.jld2" quoteData
+        append!(quoteData, newData)
+    end
+    # Ensure data is sorted by time and all rows are unique before saving
+    unique!(quoteData)
+    sort!(quoteData, :t)
+    @save "data/cryptoQuotes/$symbol.jld2" quoteData
     
+    # Update metaData
     if symbol ∈ keys(metaData)
         metaData[symbol] = Dict(
             "start" => min(startTime, metaData[symbol]["start"]),
-            "end" => max(endTime, metaData[symbol]["end"])
+            "end" => max(quoteData.t[end], metaData[symbol]["end"])
         )
     else
         metaData[symbol] = Dict(
             "start" => startTime,
-            "end" => endTime,
+            "end" => quoteData.t[end],
         )
     end
     
+    # Save metaData as TOML
     open("data/cryptoQuotes/data.toml", "w") do io
         TOML.print(io, metaData)
     end
@@ -135,7 +138,6 @@ function gatherCryptoQuotes(symbol::String; startTime::String="", endTime::Strin
         if startTime < metaData[symbol]["start"] # Check if requested period is outside of already saved period
             getCryptoQuotes(symbol, startTime, metaData[symbol]["start"])
         end
-    
         if endTime > metaData[symbol]["end"]
             getCryptoQuotes(symbol, metaData[symbol]["end"], endTime)
         end
@@ -145,7 +147,7 @@ end
 function updateQuotes()
     # println("Updating Quotes")
     for coin in keys(TOML.parsefile("data/cryptoQuotes/data.toml")) |> ProgressBar
-        gatherCryptoQuotes(coin, startTime="", endTime=string(now()))
+        gatherCryptoQuotes(coin, startTime="", endTime=string(now(UTC)))
     end
     # println("Done!\n")
 end

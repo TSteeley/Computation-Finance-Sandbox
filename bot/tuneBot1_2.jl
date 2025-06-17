@@ -1,7 +1,7 @@
 #=
-    tuneBot1.jl
+    tuneBot1_2.jl
 
-    There is a number of hyper-parameters for my algorithm as a whole, so, I want to see if I can optimise them.
+    Trying a more direct Markov chain approach
 
     Author: Thomas P. Steele
 =#
@@ -12,7 +12,7 @@ using LinearAlgebra, Base.Threads, JLD2
 using Plots, CustomPlots, Random
 include("../functions.jl")
 
-const coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOT", "DOGE", "ETH", "GRT", "LINK", "LTC", "MKR", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ", "YFI"] # ,"SOL", "PEPE", "SHIB"
+coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "ETH", "GRT", "LINK", "LTC", "MKR", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ"] # , "DOT","SOL", "YFI", "PEPE", "SHIB"
 
 # ============================================================
 # ===================   Helper Functions   ===================
@@ -33,7 +33,7 @@ function Format_TS_data(TS::AbstractVector{<:Real}, P::Int, D::Int)
     return X, Y
 end
 
-function arPost(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=5_000)
+function arPost(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=50_000)
     n, m = size(X)
     # Priors
     β₀ = ones(m)*0
@@ -57,14 +57,16 @@ function arPost(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=5_0
     # Burn in
     for _ in 1:100
         σ = 1/sqrt(rand(pΛ))
-        A[2,:] .= mβ + σβ*randn(m)*σ
+        β = mβ + σβ*randn(m)*σ
+        A[2,:] .= β
         yn = A*yn
         yn[2] += σ*randn()
     end
 
     for i in 1:N
         σ = 1/sqrt(rand(pΛ))
-        A[2,:] .= mβ + σβ*randn(m)*σ
+        β = mβ + σβ*randn(m)*σ
+        A[2,:] .= β
         yn = A*yn
         yn[2] += σ*randn()
         y[i] = yn[2]
@@ -76,144 +78,6 @@ function arPost(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=5_0
         return NaN, NaN
     end
 end
-
-# Having issues with numerical imprecision causing errors/
-# Trying to address this by standardising data first
-# function arPost_v2(ts::AbstractVector{<:Real}, P::Int, D::Int; N::Int=5_000)
-#     n = length(ts)-P-D
-#     m = P+1
-#     # Take difference D times
-#     if D != 0
-#         for _ in 1:D
-#             ts = diff(ts)
-#         end
-#     end
-
-#     X = hcat(
-#         repeat([1], length(ts)-P), 
-#         [view(ts,p:n+p-1) for p in P:-1:1]...
-#     )
-#     Y = @view ts[P+1:end]
-
-#     # Priors
-#     β₀ = ones(m)*0
-#     λ = I(m)*0.1
-#     a = 0
-#     u = 0
-
-#     pΛ = Gamma(a + n/2, inv(u+0.5*(Y'*Y + β₀'*λ*β₀ - (Y'*X+β₀'*λ)*inv(X'*X+λ)*(X'*Y+λ*β₀))))
-
-#     mβ = inv(X'*X+λ)*(X'*Y+λ*β₀)
-#     σβ = sqrt(inv(X'*X+λ))
-
-#     y = zeros(N)
-#     yn = [1 ; ones(m-1)*mβ[1]/(1-sum(mβ[2:end]))]
-
-#     # Transition matrix
-#     A = zeros(m,m)
-#     A[1,1] = 1
-#     A[3:end,2:end-1] += I(m-2)
-
-#     # Burn in
-#     for _ in 1:100
-#         σp = 1/sqrt(rand(pΛ))
-#         β = mβ + σβ*randn(m)*σp
-#         A[2,:] .= β
-#         yn = A*yn
-#         yn[2] += σp*randn()
-#     end
-
-#     for i in 1:N
-#         σp = 1/sqrt(rand(pΛ))
-#         β = mβ + σβ*randn(m)*σp
-#         A[2,:] .= β
-#         yn = A*yn
-#         yn[2] += σp*randn()
-#         y[i] = yn[2]
-#     end
-    
-#     # Solution can be non-stationary, appears to grow exponentially
-#     # very quick test to reject un-predictable series
-#     if abs((mean(y[N÷2+1:end]) - mean(y[1:N÷2]))/std(y[1:N÷2])) < 3
-#         return mean(y), std(y)
-#     else
-#         return NaN, NaN
-#     end
-# end
-
-# X, Y = Format_TS_data(TS.X, parms["P"], 2)
-# μ0, V0 = arPost(X, Y)
-
-# μ = mean(TS.X)
-# σ = std(TS.X)
-# x = (TS.X .- μ) ./ σ
-# u, v = arPost_v2(x, parms["P"], 2)
-
-# @benchmark begin
-#     μ = mean(TS.X)
-#     σ = std(TS.X)
-#     μ = mean(TS.X)
-#     X = (TS.X .- μ) / σ
-
-#     μ0, V0 = arPost_v2(X, parms["P"], 0)
-#     μ1, V1 = arPost_v2(X, parms["P"], 1)
-#     μ2, V2 = arPost_v2(X, parms["P"], 2)
-#     # If any predictions fail, skip
-#     if any(isnan.([μ0, V0, μ1, V1, μ2, V2]))
-#     end
-# end # 13.639 ms ±  5.039 ms
-# # 13.639*1540 / 1000 * 17 = 357 seconds
-
-# x,y = Format_TS_data(X, parms["P"], 0)
-# μ0, V0 = arPost(x,y)
-
-# @benchmark begin
-#     μ = mean(TS.X)
-#     σ = std(TS.X)
-#     μ = mean(TS.X)
-#     X = (TS.X .- μ) / σ
-
-#     x,y = Format_TS_data(X, parms["P"], 0)
-#     μ0, V0 = arPost(x,y)
-#     x,y = Format_TS_data(X, parms["P"], 1)
-#     μ1, V1 = arPost(x,y)
-#     x,y = Format_TS_data(X, parms["P"], 2)
-#     μ2, V2 = arPost(x,y)
-#     # If any predictions fail, skip
-#     if any(isnan.([μ0, V0, μ1, V1, μ2, V2]))
-#     end
-# end # 5.635 ms ±  3.545 ms
-
-# @benchmark begin
-#     μ = mean(TS.X)
-#     σ = std(TS.X)
-#     μ = mean(TS.X)
-#     X = (TS.X .- μ) / σ
-
-#     μ0, V0 = arPost_v2(X, parms["P"], 0)
-#     μ1, V1 = arPost_v2(X, parms["P"], 1)
-#     μ2, V2 = arPost_v2(X, parms["P"], 2)
-#     # If any predictions fail, skip
-#     if any(isnan.([μ0, V0, μ1, V1, μ2, V2]))
-#     end
-# end # 5.635 ms ±  3.545 ms
-
-# @benchmark Format_TS_data(TS.X, parms["P"]-1, 0) # 1.742 ms ±   4.180 ms
-# @benchmark arPost(X, Y) # 7.906 ms ±  19.693 ms
-
-# @benchmark begin
-#     X, Y = Format_TS_data(TS.X, parms["P"], 0)
-#     μ0, V0 = arPost(X, Y)
-# end # 8.978 ms ±  5.433 ms
-
-# @benchmark begin 
-#     μ0, V0 = arPost_v2(x, parms["P"]-1, 0)
-# end # 12.049 ms ±   7.932 ms
-
-# X, Y = Format_TS_data(TS.X, parms["P"]-1, 0)
-# μ0, V0 = arPost(X, Y)
-
-# arPost_v2(TS.X, parms["P"]-1, 0)
 
 # ============================================================
 # =====================   Load in Data   =====================
@@ -312,12 +176,6 @@ function predict(parms::Dict, quoteData::Dict)
     end
     return preds
 end
-# X, Y = Format_TS_data(TS.X, parms["P"], 0)
-# μ0, V0 = arPost(X, Y)
-# X, Y = Format_TS_data(TS.X, parms["P"], 1)
-# μ1, V1 = arPost(X, Y)
-# X, Y = Format_TS_data(TS.X, parms["P"], 2)
-# μ2, V2 = arPost(X, Y)
 
 # ============================================================
 # ============   Create predictor for TP and BP   ============
@@ -540,7 +398,7 @@ end
 # the parameters. These aren't optimisation algorithms, but I
 # think the way they search the parameter space is what I want.
 
-prior = product_distribution(
+priors = [
     DiscreteUniform(1, 180), # tStep:: Binning of quote data in minutes
     DiscreteUniform(1, 168), # step:: How often trades are performed in hours
     DiscreteUniform(1, 60),  # trainPeriod:: how much historical data to train on in days
@@ -549,7 +407,9 @@ prior = product_distribution(
     DiscreteUniform(1, 20),  # P:: Parameter for AR model
     DiscreteUniform(1, 19),  # MTS:: max trades started at once
     Exponential(1),          # portion:: What portion of portfolio value is put down on each trade
-)
+]
+
+prior = product_distribution(priors...)
 
 log_p(θ::Vector) = log_p(prior, θ)
 
@@ -578,52 +438,90 @@ function model(θi::Vector, quoteData::Dict, barData::Dict)
     trades = getTradeOutcomes(parms, preds, barData, β)
     return runBackTest(parms, trades)
 end
+function model2(θi::Vector, barData::Dict, preds::Dict)
+    # algorithm parameters
+    parms = Dict(
+        "tStep"       => Minute(θi[1]),
+        "step"        => Hour(θi[2]),
+        "trainPeriod" => Day(θi[3]),
+        "testPeriod"  => Day(θi[4]),
+        "MW"          => Hour(θi[5]),
+        "P"           => Int(θi[6]),
+        "MTS"         => Int(θi[7]),
+        "portion"     => 1,
+        # Increased fees to push it harder
+        "TakerFee"    => 0.0055,
+        "MakerFee"    => 0.0045,
+    )
+    parms["portion"] = parms["step"]/(parms["MTS"]*parms["MW"])*θi[8]
+    
+    β = createPredictor(parms, preds, barData)
+    trades = getTradeOutcomes(parms, preds, barData, β)
+    return runBackTest(parms, trades)
+end
 
-###############################
-####  Initialise sampling  ####
-###############################
 
-# I'm not planning on using 18_000 theta values, just getting good coverage pver all tStep values
-# Random.seed!(0)
-# θ = rand(prior, 180*100)
-# θ[1,:] = repeat(1:180, inner = 100) |> collect
-# y = zeros(4, 180*100)
+# Burn in period
+burnIn = 1000
+θi = [5, 6, 28, 20, 17, 20, 5, 0.453471586]
+θhist = zeros(length(θi), burnIn)
+θhist[:,1] .= θi
+# quoteData, barData = loadData(Minute(θi[1]))
 
-@load "bot/data/bot1data.jld2" θ y
+parms = Dict(
+    "tStep"       => Minute(θi[1]),
+    "step"        => Hour(θi[2]),
+    "trainPeriod" => Day(θi[3]),
+    "testPeriod"  => Day(θi[4]),
+    "MW"          => Hour(θi[5]),
+    "P"           => Int(θi[6]),
+    "MTS"         => Int(θi[7]),
+    "portion"     => 1,
+    # Increased fees to push it harder
+    "TakerFee"    => 0.0055,
+    "MakerFee"    => 0.0045,
+)
+parms["portion"] = parms["step"]/(parms["MTS"]*parms["MW"])*θi[8]
+# preds = predict(parms, quoteData)
+# @save "bot/data/tunBot_2_qutBar.jld2" quoteData barData preds
+@load "bot/data/tunBot_2_qutBar.jld2" quoteData barData preds
 
-for i in 1:180
-    # Skip if already computed
-    if all(y[1,(i-1)*100+1:i*100] .!= 0)
-        continue
+yhist = zeros(4, burnIn)
+yhist[:,1] .= model2(θi, barData, preds)
+yi = yhist[1,1]
+
+for i in 11:burnIn
+    println("Iter $i")
+    θp = copy(θi)
+    yp = copy(yi)
+    for j in 4:8
+        θp[j] = rand(priors[j])
+        yp = model2(θp, barData, preds)[1]
+        if rand() < (yp/yi)^3
+            yi = copy(yp)
+            θi = copy(θp)
+        end
     end
-    println("Simulating tStep $i of 180\nLoading Data...")
-    quoteData, barData = loadData(Minute(i))
-    idx = findall(y[1,(i-1)*100+1:i*100] .== 0)
-    @threads for j in idx |> ProgressBar
-        y[:,(i-1)*100+j] .= model(θ[:,(i-1)*100+j], quoteData, barData)
-    end
-    @save "bot/data/bot1data.jld2" θ y
+    θhist[:,i] = copy(θi)
+    yhist[:,i] .= model2(θi, barData, preds)
+    @save "bot/data/bot1BurnIn_2.jld2" θhist yhist
+    display(θi)
+    display(yhist[:,i])
+    print("\n")
 end
 
 println("DONE!!!!")
 # Save a copy of the burn in
-@save "bot/data/bot1BurnIn.jld2" θ y
+@save "bot/data/bot1BurnIn_2.jld2" θhist yhist
 
 # ============================================================
 # ==================   Analyse posterior   ===================
 # ============================================================
 
-# i = 4
-# findall(y[1,100(i-1)+1:i*100] .== 0)
-# j=20
-# θi = θ[:,(i-1)*100+j]
-# y[:,(i-1)*100+j]
-
-# # @load "bot/data/bot1data.jld2" θ y
-
-# count(y[1,:] .!= 0)
-# idx = sortperm(y[1,:], rev = true)[1:200]
-# y[:,idx[1:10]]
+# @load "bot/data/bot1BurnIn_2.jld2" θhist yhist
+# θ, y = copy(θhist), copy(yhist)
+# idx = sortperm(y[2,:], rev = true)
+# y[:,idx]
 
 # histogram(θ[1,idx], normalize = :probability, bins = 1:180, title = "tStep")
 # histogram(θ[2,idx], normalize = :probability, bins = 1:168, title = "step")

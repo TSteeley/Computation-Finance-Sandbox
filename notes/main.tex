@@ -1,4 +1,4 @@
-\documentclass[oneside]{book}
+\documentclass[oneside,11pt,a4paper]{book}
 
 \usepackage{thomasStyle}
 
@@ -8,8 +8,25 @@
 
 \begin{document}
 
+% Style
+\pagestyle{fancy}
+\fancyhead[RO,LE]{\thepage}
+\fancyhead[RE]{\nouppercase{\leftmark}}
+\fancyhead[LO]{\nouppercase{\rightmark}}
+\fancyfoot{}
+
+% Front
 \subfile{content/frontMatter.tex}
+
+\mainmatter
 \subfile{content/chapter1.tex}
 \subfile{content/chapter2.tex}
+\subfile{content/chapter3.tex}
+
+\newpage
+\renewcommand{\bibsection}{\chapter*{References}}
+\addcontentsline{toc}{chapter}{References}
+\bibliography{bib}
+\bibliographystyle{apalike}
 
 \end{document}

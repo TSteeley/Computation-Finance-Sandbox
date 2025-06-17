@@ -7,27 +7,24 @@
 =#
 
 using HTTP, JSON, DataFrames, TOML
-using Dates, TimeZones, JLD2
-using CustomPlots, Plots
-
-headers = Dict(
-    "accept" => "application/json"
-)
+using Dates, TimeZones, JLD2, ProgressBars
 
 function getQuotes(query::Dict)
     return HTTP.get(
         "https://data.alpaca.markets/v1beta3/crypto/us/quotes",
-        headers,
+        Dict("accept" => "application/json"),
         query=query
     ).body |> String |> JSON.parse
 end
 
-parseTime(t::String) = split(t, ".") |> t -> DateTime(t[1]) + Nanosecond(parse(Int, t[2][1:end-1]))
+parseTime(t::String) = split(t, ".") |> t -> length(t) == 2 ? DateTime(t[1]) + Nanosecond(parse(Int, t[2][1:end-1])) :  DateTime(t[1][1:end-1])
 
-symbol = "BTC"
-startTime = "2023-01-01"
-endTime = ""
 
+@doc"""
+loadCryptoQuotes(symbol::String)
+
+Returns quoteData for Symbol if it exists.
+"""
 function loadCryptoQuotes(symbol::String)
     symbol = replace(symbol, r"/USD$" => "")
     try
@@ -40,14 +37,14 @@ end
 
 
 @doc"""
-# loadCryptoQuotes
+fetchCryptoQuotes
 
-## Args
+# Args
  - symbol: e.g. "BTC", "LTC"
  - startTime: Start of period (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
  - endTime: End of period (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
 """
-function loadCryptoQuotes(symbol::String; startTime::String="", endTime::String="")
+function fetchCryptoQuotes(symbol::String; startTime::String="", endTime::String="")
     symbol = replace(symbol, r"/USD$" => "")
     
     metaData = TOML.parsefile("data/cryptoQuotes/data.toml")
@@ -76,14 +73,9 @@ function loadCryptoQuotes(symbol::String; startTime::String="", endTime::String=
     return quoteData
 end
 
-
-@doc"""
-# getCryptoQuotes
-
-Don't use directly, use fetchCryptoQuotes
-
-"""
-function getCryptoQuotes(symbol::String, startTime::Date, endTime::Date)
+# Because this function always tries to download data it is not used directly.
+# Instead it is called by other functions to get missing data
+function getCryptoQuotes(symbol::String, startTime::DateTime, endTime::DateTime)
     metaData = TOML.parsefile("data/cryptoQuotes/data.toml")
     
     query = Dict(
@@ -96,42 +88,95 @@ function getCryptoQuotes(symbol::String, startTime::Date, endTime::Date)
     )
     
     data = getQuotes(query)
-    
+    # If there is no knew data to grab stop here
+    .! isempty(data["quotes"]) || println("hit")
+    # If there is new data initaialise a DataFrame for quoteData
     quoteData = DataFrames.DataFrame(data["quotes"][symbol*"/USD"])
-    
+    # While there is next page tokens gat data and add it to quoteData
     while .! isnothing(data["next_page_token"])
+        # Update query with next page token
         query["page_token"] = data["next_page_token"]
+        # Get next page of data
         data = getQuotes(query)
-    
+        # Append the new data to quoteData
         append!(quoteData, DataFrames.DataFrame(data["quotes"][symbol*"/USD"]))
     end
-    
+    # Parse column "t" from string to DateTime
     transform!(quoteData, :t => ByRow(parseTime) => :t)
-    
-    if "$symbol.jld2" ∈ readdir("data/cryptoQuotes/") # if some data already saved
+
+    # If other data exists; append new data to old
+    if "$symbol.jld2" ∈ readdir("data/cryptoQuotes/") 
         newData = copy(quoteData)
         @load "data/cryptoQuotes/$symbol.jld2" quoteData
-        append!(quoteData, newData) |> unique!
+        append!(quoteData, newData)
     end
-    
+    # Ensure data is sorted by time and all rows are unique before saving
+    unique!(quoteData)
     sort!(quoteData, :t)
     @save "data/cryptoQuotes/$symbol.jld2" quoteData
     
+    # Update metaData
     if symbol ∈ keys(metaData)
         metaData[symbol] = Dict(
             "start" => min(startTime, metaData[symbol]["start"]),
-            "end" => max(endTime, metaData[symbol]["end"])
+            "end" => max(quoteData.t[end], metaData[symbol]["end"])
         )
     else
         metaData[symbol] = Dict(
             "start" => startTime,
-            "end" => endTime,
+            "end" => quoteData.t[end],
         )
     end
     
+    # Save metaData as TOML
     open("data/cryptoQuotes/data.toml", "w") do io
         TOML.print(io, metaData)
     end
+end
+
+for (i, r) in enumerate(eachrow(quoteData))
+    try
+        parseTime(r["t"])
+    catch
+        println("i = $i\nt = $(r["t"])")
+    end
+end
+i=1;r=eachrow(quoteData)[i]
+
+function gatherCryptoQuotes(symbol::String; startTime::DateTime=DateTime(0), endTime::DateTime=now())
+    symbol = replace(symbol, r"/USD$" => "")
+    
+    metaData = TOML.parsefile("data/cryptoQuotes/data.toml")
+    
+    if symbol ∉ keys(metaData)
+        startTime != DateTime(0) || error("Data for $(symbol) has not been collected previously. Specify a start time to collect new data.")
+        getCryptoQuotes(symbol, startTime, endTime)
+    else
+        if startTime == DateTime(0)
+            startTime = metaData[symbol]["start"]
+        end
+
+        # If period starts before known data
+        if startTime < metaData[symbol]["start"]
+            # Attempt to get missing period of data
+            getCryptoQuotes(symbol, startTime, metaData[symbol]["start"])
+        end
+    
+        # If perior ends after known data
+        if endTime > metaData[symbol]["end"]
+            # Get new data
+            getCryptoQuotes(symbol, metaData[symbol]["end"], endTime)
+        end
+    end
+end
+
+function updateQuotes()
+    # Update quotes synchronously because of rate limit.
+    # println("Updating Quotes")
+    for coin in keys(TOML.parsefile("data/cryptoQuotes/data.toml")) |> ProgressBar
+        gatherCryptoQuotes(coin, startTime="", endTime=string(now(UTC)))
+    end
+    # println("Done!\n")
 end
 
 data = quoteData[500:510,:]
@@ -142,6 +187,20 @@ plot!(p, data.t, data.bp, lc = :red, label = "Bid Price")
 scatter!(p, data.t, data.ap, mc = "green", label = "")
 scatter!(p, data.t, data.bp, mc = "red", label = "")
 
-getCryptoQuotes("BTC", startTime = "2023-01-01", endTime = "2025-05-01")
+metaData = TOML.parsefile("data/cryptoQuotes/data.toml")
 
+coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "DOT", "ETH", "GRT", "LINK", "LTC", "MKR", "PEPE", "SHIB", "SOL", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ", "YFI"]
 
+for coin in coins |> ProgressBar
+    data = loadCryptoQuotes(coin)
+    metaData[coin]["end"] = data.t[end]
+end
+
+open("data/cryptoQuotes/data.toml", "w") do io
+    TOML.print(io, metaData)
+end
+
+endTime = now(UTC)
+for coin in coins |> ProgressBar
+    getCryptoQuotes(coin, DateTime("2025-05-01"), endTime)
+end

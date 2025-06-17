@@ -1,4 +1,3 @@
-
 % ======================================================================
 % ============================   Packages   ============================
 % ======================================================================
@@ -29,8 +28,76 @@
 \usepackage{lipsum}
 \usepackage{bold-extra}
 
+% ======================================================================
+% =========================   Document Layout   ========================
+% ======================================================================
+
 \setlength{\parindent}{1em}
 \setlength{\parskip}{0.5em}
+
+\newlength{\chaprule}
+\newlength{\ATchapskip}
+\setlength{\chaprule}{0.4\p@}
+\setlength{\ATchapskip}{10\p@}
+\advance \ATchapskip by -1\chaprule
+\renewcommand{\@makechapterhead}[1]{%
+  \ifdim\chaprule>6\p@ \setlength{\chaprule}{6\p@}\fi
+  \vspace*{\ATchapskip}%
+  \noindent\rule{\textwidth}{\chaprule}\par%
+  \vskip 10\p@
+  {\parindent \z@ \centering \normalfont
+    \ifnum \c@secnumdepth >\m@ne
+        {\Large\sffamily\bfseries \@chapapp\space \thechapter}
+		%{\Large\scshape \@chapapp\space \thechapter}
+        \par\nobreak
+        \vskip 8\p@
+    \fi
+    \interlinepenalty\@M
+    %\Large #1\par\nobreak
+	\Large\sffamily\bfseries #1\par\nobreak
+    \vskip 10\p@
+    \noindent\rule{\textwidth}{\chaprule}\par%
+    \vskip\ATchapskip
+  }}
+\renewcommand{\@makeschapterhead}[1]{%
+  \ifdim\chaprule>6\p@ \setlength{\chaprule}{6\p@}\fi
+  \vspace*{\ATchapskip}%
+  \noindent\rule{\textwidth}{\chaprule}\par%
+  \vskip 10\p@
+  {\parindent \z@ \centering
+    \normalfont
+    \interlinepenalty\@M
+    \Large\sffamily\bfseries #1\par\nobreak
+    \vskip 10\p@
+    \noindent\rule{\textwidth}{\chaprule}\par%
+    \vskip\ATchapskip
+  }}
+
+\renewcommand{\section}{\@startsection{section}{1}{\z@}%
+    {-1.5ex \@plus-1ex \@minus -.2ex}{0.8ex \@plus.2ex}%
+    %{\normalfont\large\raggedright}}
+    {\large\bfseries\raggedright}}
+\renewcommand{\subsection}{\@startsection{subsection}{2}{\z@}%
+    {-1.2ex \@plus -.5ex \@minus-.2ex}{0.5ex \@plus.1ex}%
+    {\normalfont\normalsize\itshape\raggedright}}
+\renewcommand{\subsubsection}{\@startsection{subsubsection}{3}{\z@}%
+    {-1.0ex\@plus -.5ex \@minus -.2ex}{0.3ex \@plus .1ex}%
+    {\normalfont\normalsize\itshape\raggedright}}
+\renewcommand{\paragraph}{\@startsection{paragraph}{4}{\z@}%
+    {1.0ex \@plus.5ex \@minus.2ex}{-1em}%
+    {\normalfont\normalsize\itshape\raggedright}}
+\renewcommand{\subparagraph}{\@startsection{subparagraph}{5}{\parindent}%
+    {1.0ex \@plus.5ex \@minus .2ex}{-1em}%
+    {\normalfont\normalsize\itshape\raggedright}}
+
+\setlength{\oddsidemargin}  {1.5cm}
+\setlength{\evensidemargin} {-0.5cm}
+\setlength{\marginparwidth} {40\p@}
+\setlength{\marginparsep}   {10\p@}
+\setlength{\topmargin}      {-0.6cm}
+\setlength{\headheight}     {15\p@}
+\setlength{\headsep}        {0.5cm}
+\setlength{\textwidth}      {14.9cm}
 
 % ======================================================================
 % ====================   Environment deffinitions   ====================

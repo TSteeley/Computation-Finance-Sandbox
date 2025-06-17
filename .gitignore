@@ -1,3 +1,5 @@
 .env
 *.jld2
 notes/Project/
+realLiveVersion/
+runRealAlg.ps1

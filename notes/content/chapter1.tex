@@ -1,12 +1,13 @@
 \chapter{Mathematical Tools}
+\label{chap: 1 Mathematical Tools}
+
+A model is a mapping from some input to some output. The input, output, and mapping can be absolutely anything, for example new AI today are a mapping from an input or words to an output of different words, some of them take an input of words and give a picture as their output. By thinking of something as a special case of a more broad thing you realise that the tools at your disposal are far more broadly applicable than you may realise.
+
+A stochastic model is a mapping from and input to an array of outputs. A stochastic model will never give you the same answer twice, and the only constant is the probability distribution of its outputs. I believe stochastic models are particularly powerful as they can capture the randomness of everyday life.
+
+In this chapter I aim to derive, describe, and discuss the mathematical tools I use in other chapters so that in those chapters we can focus on the application of our models, and the writing here is a reference one might use to learn how the model works, or how to implement the model.
 
 \section{Stochastic Models and Inference}
-
-A model in general takes some input and gives some output,
-\begin{align*}
-    f(x) = y
-\end{align*}
-A stochastic model is the same, however, every single time we evaluate the model we get a different answer. 
 
 To get a feel for stochastic modelling, we will start with a basic stochastic model. Suppose we are studying some phenomena and collect a bunch of observations. We will call the set of observations $Y$ and each observation $y_i$. Our goal is to make a stochastic model which mimics our set of observations,
 \begin{align*}

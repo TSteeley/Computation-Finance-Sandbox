@@ -39,47 +39,43 @@ function getCryptoBars(symbol::String, startTime::DateTime, endTime::DateTime)
     )
 
     data = sendBarQuery(query)
-    if .! isnothing(data["next_page_token"])
-        barData = DataFrames.DataFrame(data["bars"][symbol*"/USD"])
-        barData.v = Float64.(barData.v)
+    .! isempty(data["bars"]) || return
+    barData = DataFrames.DataFrame(data["bars"][symbol*"/USD"])
+    barData.v = Float64.(barData.v)
 
-        while .! isnothing(data["next_page_token"])
-            query["page_token"] = data["next_page_token"]
-            data = sendBarQuery(query)
+    while .! isnothing(data["next_page_token"])
+        query["page_token"] = data["next_page_token"]
+        data = sendBarQuery(query)
 
-            append!(barData, DataFrames.DataFrame(data["bars"][symbol*"/USD"]))
-        end
-
-        transform!(barData, :t => ByRow(parseBarTime) => :t)
-
-        if "$symbol.jld2" ∈ readdir("data/cryptoBars/") # if some data already saved
-            newData = copy(barData)
-            @load "data/cryptoBars/$symbol.jld2" barData
-            append!(barData, newData) |> unique!
-        end
-        
-        sort!(barData, :t)
-        @save "data/cryptoBars/$symbol.jld2" barData
+        append!(barData, DataFrames.DataFrame(data["bars"][symbol*"/USD"]))
     end
+    transform!(barData, :t => ByRow(parseBarTime) => :t)
+
+    if "$symbol.jld2" ∈ readdir("data/cryptoBars/") # if some data already saved
+        newData = copy(barData)
+        @load "data/cryptoBars/$symbol.jld2" barData
+        append!(barData, newData)
+    end
+    
+    unique!(barData)
+    sort!(barData, :t)
+    @save "data/cryptoBars/$symbol.jld2" barData
     
     if symbol ∈ keys(metaData)
         metaData[symbol] = Dict(
             "start" => min(startTime, metaData[symbol]["start"]),
-            "end" => max(endTime, metaData[symbol]["end"])
+            "end" => max(barData.t[end], metaData[symbol]["end"])
         )
     else
         metaData[symbol] = Dict(
             "start" => startTime,
-            "end" => endTime,
+            "end" => barData.t[end],
         )
     end
-
 
     open("data/cryptoBars/data.toml", "w") do io
         TOML.print(io, metaData)
     end
-
-    # return barData
 end
 
 @doc"""
@@ -229,9 +225,9 @@ function gatherCryptoBars(symbol::String; startTime::String="", endTime::String=
 end
 
 function updateBars()
-    println("Updating Bars")
+    # println("Updating Bars")
     for coin in keys(TOML.parsefile("data/cryptoBars/data.toml")) |> ProgressBar
-        gatherCryptoQuotes(coin, startTime="", endTime=string(now()))
+        gatherCryptoQuotes(coin, startTime="", endTime=string(now(UTC)))
     end
-    println("Done!")
+    # println("Done!")
 end

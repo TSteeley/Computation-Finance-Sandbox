@@ -76,14 +76,10 @@ timeFrame = "1T"
 # ========================   Setup   =========================
 # ============================================================
 
-const headers = Dict(
-    "accept" => "application/json"
-)
-
 function sendBarQuery(query::Dict)
     return HTTP.get(
         "https://data.alpaca.markets/v1beta3/crypto/us/bars",
-        headers,
+        Dict("accept" => "application/json"),
         query=query
     ).body |> String |> JSON.parse
 end
@@ -94,16 +90,6 @@ end
 
 parseBarTime(str::String) = DateTime(str[1:end-1])
 
-@doc"""
-# getCryptoBars
-
-Do not use directly. Use fetchCryptoBars instead.
-
-## Args:
- - symbol: e.g. "BTC", "LTC"
- - startTime: Start of period, defaults to start of day (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
- - endTime: End of period, defaults to the current time (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
-"""
 function getCryptoBars(symbol::String, startTime::DateTime, endTime::DateTime)
     symbol = replace(symbol, r"/USD$" => "")
     metaData = TOML.parsefile("data/cryptoBars/data.toml")
@@ -118,46 +104,43 @@ function getCryptoBars(symbol::String, startTime::DateTime, endTime::DateTime)
     )
 
     data = sendBarQuery(query)
+    .! isempty(data["bars"]) || return
+    barData = DataFrames.DataFrame(data["bars"][symbol*"/USD"])
+    barData.v = Float64.(barData.v)
 
-    if .! isnothing(data["next_page_token"])
-        barData = DataFrames.DataFrame(data["bars"][symbol*"/USD"])
+    while .! isnothing(data["next_page_token"])
+        query["page_token"] = data["next_page_token"]
+        data = sendBarQuery(query)
 
-        while .! isnothing(data["next_page_token"])
-            query["page_token"] = data["next_page_token"]
-            data = sendBarQuery(query)
-
-            append!(barData, DataFrames.DataFrame(data["bars"][symbol*"/USD"]))
-        end
-
-        transform!(barData, :t => ByRow(parseBarTime) => :t)
-
-        if "$symbol.jld2" ∈ readdir("data/cryptoBars/") # if some data already saved
-            newData = copy(barData)
-            @load "data/cryptoBars/$symbol.jld2" barData
-            append!(barData, newData) |> unique!
-        end
-        
-        sort!(barData, :t)
-        @save "data/cryptoBars/$symbol.jld2" barData
+        append!(barData, DataFrames.DataFrame(data["bars"][symbol*"/USD"]))
     end
+    transform!(barData, :t => ByRow(parseBarTime) => :t)
 
+    if "$symbol.jld2" ∈ readdir("data/cryptoBars/") # if some data already saved
+        newData = copy(barData)
+        @load "data/cryptoBars/$symbol.jld2" barData
+        append!(barData, newData)
+    end
+    
+    unique!(barData)
+    sort!(barData, :t)
+    @save "data/cryptoBars/$symbol.jld2" barData
+    
     if symbol ∈ keys(metaData)
         metaData[symbol] = Dict(
             "start" => min(startTime, metaData[symbol]["start"]),
-            "end" => max(endTime, metaData[symbol]["end"])
+            "end" => max(barData.t[end], metaData[symbol]["end"])
         )
     else
         metaData[symbol] = Dict(
             "start" => startTime,
-            "end" => endTime,
+            "end" => barData.t[end],
         )
     end
 
-    open("./data/data.toml", "w") do io
+    open("data/cryptoBars/data.toml", "w") do io
         TOML.print(io, metaData)
     end
-
-    # return barData
 end
 
 @doc"""
@@ -362,4 +345,22 @@ elseif occursin("M", tstep) || occursin("Month", tstep)
     n = parse(Int, replace(tstep, r"(M|Month|Months)" => ""))
     T = Date(barData[1,:t])
     transform!(barData, :t => ByRow(t -> T + Dates.Month(n*floor(Int, ((Month(t) - Month.(T)).value  + 12(Year(t) - Year(T)).value) ./ n))) => :t)
+end
+
+metaData = TOML.parsefile("data/cryptoBars/data.toml")
+
+coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "DOT", "ETH", "GRT", "LINK", "LTC", "MKR", "PEPE", "SHIB", "SOL", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ", "YFI"]
+
+for coin in coins |> ProgressBar
+    data = loadCryptoBars(coin)
+    metaData[coin]["end"] = data.t[end]
+end
+
+open("data/cryptoBars/data.toml", "w") do io
+    TOML.print(io, metaData)
+end
+
+endTime = now(UTC)
+for coin in coins |> ProgressBar
+    getCryptoBars(coin, DateTime("2025-05-01"), endTime)
 end

@@ -5,13 +5,20 @@
 
 # const coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "ETH", "GRT", "LINK", "LTC", "MKR", "PEPE",  "SHIB", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ"]
 
-# tStep = Minute(5) # Chunking of quotes
-# step = Hour(6) # How often esimates are made on data
-# MW = Day(3) # Maximum wait for an order to execute
-# trainPeriod = Week(4) # Window size
-# testPeriod = Week(2) # Time a trade has to completely finish
-# P = 1 # How long back AR looks
-# a = 0.75
+# parms = Dict(
+#     "tStep"       => Minute(5),
+#     "step"        => Hour(6),
+#     "trainPeriod" => Week(4),
+#     "testPeriod"  => Week(2),
+#     "P"           => 5,
+#     "MW"          => Day(3),
+#     "portion"     => 1,
+#     "MTS"         => 10,
+#     # very slight numerical imprecision causes issues
+#     "MakerFee"    => 0.0015+eps(),
+#     "TakerFee"    => 0.0025+eps(),
+# )
+# parms["portion"] = parms["step"]/(parms["MTS"]*parms["MW"])
 
 using Distributions
 
@@ -51,7 +58,7 @@ function BayesPost(X, Y; N::Int=50_000)
     return μ, V
 end
 
-function arPost(X, Y; N::Int=10_000)
+function arPost(X, Y; N::Int=50_000)
     n, m = size(X)
     # Priors
     β₀ = ones(m)*0
@@ -90,36 +97,44 @@ function arPost(X, Y; N::Int=10_000)
         y[i] = yn[2]
     end
 
-    return mean(y), std(y)
+    if abs((mean(y[N÷2+1:end]) - mean(y[1:N÷2]))/std(y[1:N÷2])) < 3 && .! isinf(mean(y))
+        return mean(y), std(y)
+    else
+        return NaN, NaN
+    end
 end
 
-function bot1(;P::Int=5)
+function bot1()
     @load "bot/data/bot_weights.jld2" β
-    @load "liveVersion/bot1Paper/Account.jld2" params
+    @load "liveVersion/bot1Paper/Account.jld2" parms
 
     preds = Dict[]
-    println("Predicting prices")
     for c in coins |> ProgressBar
         data = loadCryptoQuotes(c)
-        filter!(d -> now()-params["trainPeriod"] < d.t != 0, data)
+        filter!(d -> now()-parms["trainPeriod"] < d.t, data)
         filter!(d -> d.bp != 0, data)
-        transform!(data, :t => ByRow(t -> round(t, params["tStep"], RoundDown)) => :t)
+        transform!(data, :t => ByRow(t -> round(t, parms["tStep"], RoundDown)) => :t)
 
         TS = combine(groupby(data, :t),
             :bp => last => :bp,
         )
-        fillMissing!(TS, step = params["tStep"])
+        fillMissing!(TS, step = parms["tStep"])
         transform!(TS, :bp => ByRow(log) => :X)
 
-        X, Y = Format_TS_data(TS.X, P, 0)
-        μ0, V0 = arPost(X, Y)
-        X, Y = Format_TS_data(TS.X, P, 1)
-        μ1, V1 = arPost(X, Y)
-        X, Y = Format_TS_data(TS.X, P, 2)
-        μ2, V2 = arPost(X, Y)
+        μ = mean(TS.X)
+        σ = std(TS.X)
+        σ != 0 || continue
+        X = (TS.X .- μ) ./ σ
+
+        x, y = Format_TS_data(X, parms["P"], 0)
+        μ0, V0 = arPost(x, y)
+        x, y = Format_TS_data(X, parms["P"], 1)
+        μ1, V1 = arPost(x, y)
+        x, y = Format_TS_data(X, parms["P"], 2)
+        μ2, V2 = arPost(x, y)
         p = TS.X[end]
         
-        TP, BP = hcat(1, μ0, V0, μ1, V1, μ2, V2, p)*β
+        TP, BP = hcat(1, μ0*σ+μ, V0*σ, μ1*σ, V1*σ, μ2*σ, V2*σ, p)*β
         push!(preds, Dict(
                 "coin" => c,
                 "TP" => exp(TP),
@@ -127,9 +142,9 @@ function bot1(;P::Int=5)
             )
         )
     end
-    println("Done")
-    idx = sortperm([t["TP"]/t["BP"] for t in preds], rev=true)
+    filter!(x -> x["TP"]/x["BP"] > 1.05, preds)
+    idx = sortperm([(t["TP"]/t["BP"]) for t in preds], rev=true)
 
-    return preds[idx[1:10]]
+    return preds[idx[1:min(parms["MTS"], length(idx))]]
 end
 

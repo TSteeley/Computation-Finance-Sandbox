@@ -4,9 +4,9 @@ include("../functions.jl")
 include("bot1.jl")
 DotEnv.load!()
 
-const coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "ETH", "GRT", "LINK", "LTC", "MKR", "PEPE",  "SHIB", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ"]
+const coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "DOT", "ETH", "GRT", "LINK", "LTC", "MKR", "PEPE", "SHIB", "SOL", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ", "YFI"]
 
-parseTime(t::String) = split(t, ".") |> t -> DateTime(t[1]) + Nanosecond(parse(Int, t[2][1:end-1]))
+parseTime(t::String) = split(t, ".") |> t -> length(t) == 2 ? DateTime(t[1]) + Nanosecond(parse(Int, t[2][1:end-1])) :  DateTime(t[1][1:end-1])
 
 const header = Dict(
     "accept" => "application/json",
@@ -32,12 +32,12 @@ function getCurrentPrice(coin::String)
 end
 
 function placeOrder(pred::Dict)
-    @load "liveVersion/bot1Paper/Account.jld2" Account params
-    Log = CSV.read("liveVersion/bot1Paper/tradeLog.csv", DataFrame)
+    @load "liveVersion/bot1Paper/Account.jld2" Account parms
+    Log = CSV.read("liveVersion/bot1Paper/tradeLog.csv", DataFrame, downcast=false)
     if Account["Liquidity"] > 1
         query = Dict{String, Any}()
         p = getCurrentPrice(pred["coin"])["c"]
-        orderVal = min(Account["Value"]*params["portion"],Account["Liquidity"])
+        orderVal = clamp(Account["Value"]*parms["portion"],1,Account["Liquidity"])
         if pred["BP"] > p # market order
             query = Dict(
                 "symbol" => pred["coin"]*"/USD",
@@ -92,7 +92,7 @@ function placeOrder(pred::Dict)
             )
         )
         Account["Liquidity"] -= orderVal
-        @save "liveVersion/bot1Paper/Account.jld2" Account params
+        @save "liveVersion/bot1Paper/Account.jld2" Account parms
         CSV.write("liveVersion/bot1Paper/tradeLog.csv", Log)
     end
 end
@@ -103,8 +103,8 @@ end
 Gets all known unfilled orders, and acts accordingly. If they are too old they are killed, if they are filled the order is updated, otherwise left alone.
 """
 function updateOrders()
-    @load "liveVersion/bot1Paper/Account.jld2" Account params
-    Log = CSV.read("liveVersion/bot1Paper/tradeLog.csv", DataFrame)
+    @load "liveVersion/bot1Paper/Account.jld2" Account parms
+    Log = CSV.read("liveVersion/bot1Paper/tradeLog.csv", DataFrame, downcast=false)
 
     Orders = @view Log[findall(Log[!,"status"] .== "order open"),:]
     
@@ -117,7 +117,7 @@ function updateOrders()
             Orders[i, "status"] = "trade active"
             Orders[i, "orderQty"] = parse(Float64, req["filled_qty"])
             Orders[i, "avgFillPrice"] = parse(Float64, req["filled_avg_price"])
-            fee = Orders[i, "orderQty"]*(ord["orderType"] == "limit" ? params["TakerFee"] : params["MakerFee"])
+            fee = Orders[i, "orderQty"]*(ord["orderType"] == "limit" ? parms["MakerFee"] : parms["TakerFee"])
             Orders[i, "buyFee"] = fee*Orders[i, "avgFillPrice"]
             Orders[i, "totalFees"] += fee*Orders[i, "avgFillPrice"]
 
@@ -147,7 +147,7 @@ function updateOrders()
             Orders[i,"sellID"] = req2["id"]
             Orders[i,"sellQty"] = parse(Float64, req["qty"])
             Orders[i,"sellType"] = "limit"
-        elseif ord[:createdAt] + params["MW"] < now()
+        elseif ord[:createdAt] + parms["MW"] < now()
             Orders[i,"status"] = "order cancelled"
             HTTP.delete(
                 ENV["PAPER_ENDPOINT"]*"/orders/"*ord["orderID"],
@@ -155,17 +155,17 @@ function updateOrders()
             )
             # Return unused liquidity
             Account["Liquidity"] += ord["value"]
-            Trades[i, "completeTime"] = now()
+            Orders[i, "completeTime"] = now()
         end
         # Saves every loop in case an error breaks it
-        @save "liveVersion/bot1Paper/Account.jld2" Account params
+        @save "liveVersion/bot1Paper/Account.jld2" Account parms
         CSV.write("liveVersion/bot1Paper/tradeLog.csv", Log)
     end
 end
 
 function updateTrades()
-    @load "liveVersion/bot1Paper/Account.jld2" Account params
-    Log = CSV.read("liveVersion/bot1Paper/tradeLog.csv", DataFrame)
+    @load "liveVersion/bot1Paper/Account.jld2" Account parms
+    Log = CSV.read("liveVersion/bot1Paper/tradeLog.csv", DataFrame, downcast=false)
 
     Trades = @view Log[findall(Log[!,"status"] .== "trade active"),:]
 
@@ -178,7 +178,7 @@ function updateTrades()
             Trades[i, "status"] = "trade closed"
             Trades[i, "sellQty"] = parse(Float64, req["filled_qty"])
             Trades[i, "avgSellPrice"] = parse(Float64, req["filled_avg_price"])
-            fee = Trades[i, "sellQty"]*(trade["sellType"] == "limit" ? params["MakerFee"] : params["TakerFee"])
+            fee = Trades[i, "sellQty"]*(trade["sellType"] == "limit" ? parms["MakerFee"] : parms["TakerFee"])
             Trades[i, "sellFee"] = fee*Trades[i, "avgSellPrice"]
             Trades[i, "totalFees"] += fee*Trades[i, "avgSellPrice"]
             Trades[i, "completeTime"] = parseTime(req["filled_at"])
@@ -191,7 +191,7 @@ function updateTrades()
             Account["Value"] += Trades[i, "PL_dollars"]
             Account["Liquidity"] += sellValue
 
-        elseif trade["createdAt"] + params["testPeriod"] < now() # trade too old, kill
+        elseif trade["createdAt"] + parms["testPeriod"] < now() # trade too old, kill
             p = getCurrentPrice(trade["coin"])
             query = Dict(
                 "limit_price" => p
@@ -202,20 +202,55 @@ function updateTrades()
             )
         end
         # Save every loop in case something breaks
-        @save "liveVersion/bot1Paper/Account.jld2" Account params
+        @save "liveVersion/bot1Paper/Account.jld2" Account parms
         CSV.write("liveVersion/bot1Paper/tradeLog.csv", Log)
     end
 end
 
-# i=6;trade=eachrow(Trades)[i]
-# req = HTTP.get(
-#     ENV["PAPER_ENDPOINT"]*"/orders/"*ord["orderID"],
-#     getHeader
-# ).body |> String |> JSON.parse
+function makeReport()
+    Log = CSV.read("liveVersion/bot1Paper/tradeLog.csv", DataFrame, downcast=false)
+    @load "liveVersion/bot1Paper/Account.jld2" Account parms
+    activeTrades = copy(Log[Log[!,"status"] .== "trade active",:])
+    activeOrders = copy(Log[Log[!,"status"] .== "order open",:])
+    closedTrades = copy(Log[(Log[!,"status"] .== "trade closed") .& (Log[!,"completeTime"] .> now()-Week(1)),:])
 
-# Trades[i,"sellID"] = "a5cb4853-eef9-4a93-8779-4081ba91859f"
-# req["symbol"]
-# Log[16,"coin"] = "CRV"
+    open("liveVersion/report.txt", "w+") do io
+        println.(io, 
+            [
+                "Account",
+                "  Value          => \$$(Account["Value"])",
+                "  Liquidity      => \$$(Account["Liquidity"])",
+                "  Value on order => \$$(sum(activeOrders.value))",
+                "  Value trading  => \$$(sum(activeTrades.value))",
+                "  PL last 7 days => \$$(sum(closedTrades.PL_dollars))\n"
+            ]
+        )
+    end
+
+    open("liveVersion/report.txt", "a+") do io
+        println(io, "Open trades")
+        for c in sort(unique(activeTrades.coin))
+            println(io, "  $c")
+            activeTrades[!,"Target PL"] = activeTrades[!,"TP"] ./ activeTrades[!,"BP"]
+            activeTrades[!,"Kill By"] = activeTrades[!,"createdAt"] .+ parms["testPeriod"]
+            activeTrades[!,"Gain"] = activeTrades[!,"value"] .* (activeTrades[!,"Target PL"] .- 1)
+            println(io, activeTrades[(activeTrades.coin .== c),["createdAt", "value", "Gain", "Target PL", "BP", "TP", "Kill By"]])
+            println(io,"\n")
+        end
+    end
+
+    open("liveVersion/report.txt", "a+") do io
+        println(io, "Open orders\n")
+        for c in sort(unique(activeOrders.coin))
+            println(io, "  $c")
+            activeOrders[!,"Target PL"] = activeOrders[!,"TP"] ./ activeOrders[!,"BP"]
+            activeOrders[!,"Kill By"] = activeOrders[!,"createdAt"] .+ parms["MW"]
+            activeOrders[!,"Gain"] = activeOrders[!,"value"] .* (activeOrders[!,"Target PL"] .- 1)
+            println(io, activeOrders[(activeOrders.coin .== c),["createdAt", "value", "Gain", "Target PL", "BP", "TP", "Kill By"]])
+            println(io,"\n")
+        end
+    end
+end
 
 function main()
 
@@ -259,9 +294,22 @@ function main()
         placeOrder(pred)
     end
     println("Done")
+
+    # Run update orders again to complete market orders
+    sleep(30)
+    updateOrders()
+    makeReport()
 end
 
 main()
 
-# println("Winner")
-# sleep(5)
+
+sort!(activeOrders, "coin")
+for c in sort(unique(activeOrders.coin))
+    println(io, "  $c")
+    activeOrders[!,"Target PL"] = activeOrders[!,"TP"] ./ activeOrders[!,"BP"]
+    println(io, activeOrders[(activeOrders.coin .== c),["createdAt", "value", "BP", "TP", "Target PL"]])
+end
+
+
+select(activeOrders, )
