@@ -57,3 +57,36 @@ end
 function ∓(x, y)
     return x .+ [-1, 1] .* y
 end
+
+function (twapBias)(step=Minute(1))
+    return function twapBias(t,as,bs)
+        b = @. (as-bs)/(as+bs)
+        tw = diff([round(t[1], step, RoundDown) ; t])
+        tw = [x.value for x in tw]
+        return sum(tw) == 0 ? mean(b) : tw'*b/sum(tw)
+    end
+end
+function (twapPrice)(step=Minute(1))
+    return function f(t,as,ap,bs,bp)
+        b = @. (as*ap+bs*bp)/(as+bs)
+        tw = diff([round(t[1], step, RoundDown) ; t])
+        tw = [x.value for x in tw]
+        return sum(tw) == 0 ? mean(b) : tw'*b/sum(tw)
+    end
+end
+function (twa)(step=Minute(1))
+    return function f(t,b)
+        tw = diff([round(t[1], step, RoundDown) ; t])
+        tw = [x.value for x in tw]
+        return sum(tw) == 0 ? mean(b) : tw'*b/sum(tw)
+    end
+end
+function (Quantile)(q)
+    return x -> quantile(x, q)
+end
+
+function prog(tm::DateTime, p::Period)
+    L = round(tm, p, RoundDown)
+    U = round(tm, p, RoundUp)
+    L != U ? (tm-L)/(U-L) : 0
+end

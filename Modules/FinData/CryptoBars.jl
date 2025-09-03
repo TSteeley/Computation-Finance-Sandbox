@@ -225,9 +225,65 @@ function gatherCryptoBars(symbol::String; startTime::String="", endTime::String=
 end
 
 function updateBars()
-    # println("Updating Bars")
-    for coin in keys(TOML.parsefile("data/cryptoBars/data.toml")) |> ProgressBar
-        gatherCryptoQuotes(coin, startTime="", endTime=string(now(UTC)))
+    metaData = TOML.parsefile("data/cryptoBars/data.toml")
+    coins = collect(keys(metaData))
+
+    newBars = Dict{String, DataFrame}()
+    for c in coins
+        newBars[c] = DataFrame(
+            :t  => String[], 
+            :v  => Float64[], 
+            :vw => Float64[], 
+            :n  => Int[],
+            :c  => Float64[], 
+            :o  => Float64[], 
+            :l  => Float64[],
+            :h  => Float64[],
+        )
     end
-    # println("Done!")
+
+    startTime = minimum(c -> metaData[c]["end"], coins)
+    endTime = now(UTC)
+
+    query = Dict(
+        "symbols"    => prod(coins.*"/USD,"),
+        "timeframe"  => "1T",
+        "start"      => replace(string(startTime), r"^(.*T.*[^Z])$" => s"\1Z"),
+        "end"        => replace(string(endTime), r"^(.*T.*[^Z])$" => s"\1Z"),
+        "limit"      => 10_000,
+        "page_token" => "",
+        "sort"       => "asc",
+    )
+    
+    req = sendBarQuery(query)
+    # If there is no knew data to grab stop here
+    .! isempty(req["bars"]) || return
+
+    while req["next_page_token"] !== nothing
+        for c in keys(req["bars"])
+            append!(newBars[c[1:end-4]], req["bars"][c])
+        end
+
+        # Update query with next page token
+        query["page_token"] = req["next_page_token"]
+        # Get next page of data
+        req = sendBarQuery(query)
+    end
+
+    # If other data exists; append new data to old
+    for c in coins[2:end]
+        transform!(newBars[c], :t => ByRow(parseBarTime) => :t)
+        @load "data/cryptoBars/$c.jld2" barData
+        append!(barData, newBars[c])
+        # Ensure data is sorted by time and all rows are unique before saving
+        unique!(barData)
+        sort!(barData, :t)
+        @save "data/cryptoBars/$c.jld2" barData
+        metaData[c]["end"] = barData.t[end]
+    end
+    
+    # Save metaData as TOML
+    open("data/cryptoBars/data.toml", "w") do io
+        TOML.print(io, metaData)
+    end
 end

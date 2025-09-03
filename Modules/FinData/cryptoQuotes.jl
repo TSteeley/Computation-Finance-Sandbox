@@ -145,9 +145,61 @@ function gatherCryptoQuotes(symbol::String; startTime::String="", endTime::Strin
 end
 
 function updateQuotes()
-    # println("Updating Quotes")
-    for coin in keys(TOML.parsefile("data/cryptoQuotes/data.toml")) |> ProgressBar
-        gatherCryptoQuotes(coin, startTime="", endTime=string(now(UTC)))
+    metaData = TOML.parsefile("data/cryptoQuotes/data.toml")
+    coins = collect(keys(metaData))
+
+    newQuotes = Dict{String, DataFrame}()
+    for c in coins
+        newQuotes[c] = DataFrame(
+            :t => String[], 
+            :ap => Float64[], 
+            :as => Float64[], 
+            :bp => Float64[], 
+            :bs => Float64[]
+        )
     end
-    # println("Done!\n")
+
+    startTime = minimum(c -> metaData[c]["end"], coins)
+    endTime = now(UTC)
+
+    query = Dict(
+        "symbols"    => prod(coins.*"/USD,"),
+        "start"      => replace(string(startTime), r"^(.*T.*[^Z])$" => s"\1Z"),
+        "end"        => replace(string(endTime), r"^(.*T.*[^Z])$" => s"\1Z"),
+        "limit"      => 10_000,
+        "page_token" => "",
+        "sort"       => "asc",
+    )
+    
+    req = getQuotes(query)
+    # If there is no knew data to grab stop here
+    .! isempty(req["quotes"]) || return
+
+    while req["next_page_token"] !== nothing
+        for c in keys(req["quotes"])
+            append!(newQuotes[c[1:end-4]], req["quotes"][c])
+        end
+
+        # Update query with next page token
+        query["page_token"] = req["next_page_token"]
+        # Get next page of data
+        req = getQuotes(query)
+    end
+
+    # If other data exists; append new data to old
+    for c in coins
+        transform!(newQuotes[c], :t => ByRow(parseTime) => :t)
+        @load "data/cryptoQuotes/$c.jld2" quoteData
+        append!(quoteData, newQuotes[c])
+        # Ensure data is sorted by time and all rows are unique before saving
+        unique!(quoteData)
+        sort!(quoteData, :t)
+        @save "data/cryptoQuotes/$c.jld2" quoteData
+        metaData[c]["end"] = quoteData.t[end]
+    end
+    
+    # Save metaData as TOML
+    open("data/cryptoQuotes/data.toml", "w") do io
+        TOML.print(io, metaData)
+    end
 end

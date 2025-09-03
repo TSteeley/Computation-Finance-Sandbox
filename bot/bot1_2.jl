@@ -1,17 +1,5 @@
 #=
-    bot1.jl
-
-    This file contains all of the code for bot1 where I was testing it before my first test deployment. 
-
-    Aspects of the process do not need to be run sequentially, so I do not. This helps speed up iterations and bug finding.
-
-    Breakdow of the sections in this file,
-    1. Load and prep dependencies and functions
-    2. Hyper parameters for bot1
-    3. Precompute predictions for all coins at all time steps
-    4. Create a predictor for the best take-profit and buy-price to use for each trade
-    5. Use predictor (step 4) for each coin at each time-step and see how trades play out
-    6. Backtest. Step through time making decisions as you would do in a real scenario to see how bot performs.
+    bot1_2.jl
 
     Author: Thomas P. Steele
 =#
@@ -22,25 +10,6 @@ using LinearAlgebra, Base.Threads, JLD2
 using Plots, CustomPlots
 include("../functions.jl")
 
-@doc raw"""
-    Format_TS_data(TS::AbstractVector{<:Real}, P::Int, D::Int)
-
-Formats a time series (TS) for bot1. Returns X, Y
-```math
-TS = [x_1,x_2,\dots,x_n]^T
-  X = [
-      1  x_P       x_{P-1}  ⋯  x_1
-      1  x_{P+1}   x_P      ⋯  x_2
-      ⋮   ⋮         ⋮        ⋮   ⋮
-  ]
-  Y = [x_{P+1},x_{P+2},⋯,x_{n}]^T
-```
-...
-# Arguments
-- `P::Int`: number of previous steps to include in X
-- `D::Int`: take the difference of each step in X D times
-...
-"""
 function Format_TS_data(TS::AbstractVector{<:Real}, P::Int, D::Int)
     if D != 0
         for _ in 1:D
@@ -56,16 +25,10 @@ function Format_TS_data(TS::AbstractVector{<:Real}, P::Int, D::Int)
     return X, Y
 end
 
-@doc"""
-    arPost(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=10_000)
-Fits an autoregressive model with data X and Y. Returns the posterior expectation and standard deviation of fit time series.
-...
-# Arguments
-- `N::Int=10_000`: number of steps in monte-carlo simulation of time series. Used for estimating time series expectation and standard deviation.
-...
-"""
-function arPost(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=10_000)
+function arPost2(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=8)
     n, m = size(X)
+    M = ceil(Int, parms["trainPeriod"]/parms["tStep"])
+    W = ceil(Int, parms["MW"]/parms["tStep"])
     # Priors
     β₀ = ones(m)*0
     λ = I(m)*0.1
@@ -77,105 +40,37 @@ function arPost(X::AbstractMatrix{<:Real}, Y::AbstractVector{<:Real}; N::Int=10_
     mβ = inv(X'*X+λ)*(X'*Y+λ*β₀)
     σβ = sqrt(inv(X'*X+λ))
 
-    y = zeros(N)
-    yn = [1 ; ones(m-1)*mβ[1]/(1-sum(mβ[2:end]))]
-
     # Transition matrix
     A = zeros(m,m)
     A[1,1] = 1
     A[3:end,2:end-1] += I(m-2)
 
-    # Burn in
-    for _ in 1:100
-        σ = 1/sqrt(rand(pΛ))
-        A[2,:] .= mβ + σβ*randn(m)*σ
-        yn = A*yn
-        yn[2] += σ*randn()
-    end
+    y = zeros(M)
+    yn = copy(X[end,:])
+    BP = 0
+    TP = 0
 
-    for i in 1:N
-        σ = 1/sqrt(rand(pΛ))
-        A[2,:] .= mβ + σβ*randn(m)*σ
-        yn = A*yn
-        yn[2] += σ*randn()
-        y[i] = yn[2]
-    end
-
-    if abs((mean(y[N÷2+1:end]) - mean(y[1:N÷2]))/std(y[1:N÷2])) < 3
-        return mean(y), std(y)
-    else
-        return NaN, NaN
-    end
-end
-
-function arPost_v2(ts::AbstractVector{<:Real}, P::Int, D::Int; N::Int=10_000)
-    n = length(ts)-P-D
-    m = P+1
-    # Take difference D times
-    if D != 0
-        for _ in 1:D
-            ts = diff(ts)
+    for _ in 1:N
+        for j in 1:M
+            σ = 1/sqrt(rand(pΛ))
+            A[2,:] .= mβ + σβ*randn(m)*σ
+            yn = A*yn
+            yn[2] += σ*randn()
+            y[j] = yn[2]
         end
+        BP += quantile(y[1:W], 0.25)
+        TP += quantile(y[1:W], 0.75)
+        yn .= copy(X[end,:])
     end
 
-    X = hcat(
-        repeat([1], length(ts)-P), 
-        [view(ts,p:n+p-1) for p in P:-1:1]...
-    )
-    Y = @view ts[P+1:end]
-
-    # Priors
-    β₀ = ones(m)*0
-    λ = I(m)*0.5
-    a = 0
-    u = 0
-
-    pΛ = Gamma(a + n/2, inv(u+0.5*(Y'*Y + β₀'*λ*β₀ - (Y'*X+β₀'*λ)*inv(X'*X+λ)*(X'*Y+λ*β₀))))
-
-    mβ = inv(X'*X+λ)*(X'*Y+λ*β₀)
-    σβ = sqrt(inv(X'*X+λ))
-
-    y = zeros(N)
-    yn = [1 ; ones(m-1)*mβ[1]/(1-sum(mβ[2:end]))]
-
-    # Transition matrix
-    A = zeros(m,m)
-    A[1,1] = 1
-    A[3:end,2:end-1] += I(m-2)
-
-    # Burn in
-    for _ in 1:100
-        σp = 1/sqrt(rand(pΛ))
-        β = mβ + σβ*randn(m)*σp
-        A[2,:] .= β
-        yn = A*yn
-        yn[2] += σp*randn()
-    end
-
-    for i in 1:N
-        σp = 1/sqrt(rand(pΛ))
-        β = mβ + σβ*randn(m)*σp
-        A[2,:] .= β
-        yn = A*yn
-        yn[2] += σp*randn()
-        y[i] = yn[2]
-    end
-    
-    # Solution can be non-stationary, appears to grow exponentially
-    # very quick test to reject un-predictable series
-    if abs((mean(y[N÷2+1:end]) - mean(y[1:N÷2]))/std(y[1:N÷2])) < 3
-        return mean(y), std(y)
-    else
-        return NaN, NaN
-    end
+    return BP/N, TP/N
 end
-
 
 # ============================================================
 # ===================   Hyper Parameters   ===================
 # ============================================================
 
-coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "ETH", "GRT", "LINK", "LTC", "MKR", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ", "PEPE", "SHIB", "YFI", "DOT"] # , "SOL"
+coins = ["AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "ETH", "GRT", "LINK", "LTC", "MKR", "SUSHI", "TRUMP", "UNI", "XRP", "XTZ", "PEPE", "SHIB", "YFI", "DOT"] # , "SOL", "AAVE"
 
 @load "liveVersion/bot1Paper/Account.jld2" parms
 
@@ -184,7 +79,8 @@ coins = ["AAVE", "AVAX", "BAT", "BCH", "BTC", "CRV", "DOGE", "ETH", "GRT", "LINK
 # θi = [5, 6, 28, 10, 150, 12, 7, 1.2567906333910892]
 # θi = [5, 6, 28, 48, 38, 3, 5, 1.357056078482785]
 # θi = [5, 6, 28, 10, 155, 8, 5, 2.1]
-θi = [5, 6, 28, 10, 32, 14, 5, 2.53]
+# θi = [5, 6, 28, 10, 32, 14, 5, 2.53]
+θi = [5, 6, 28, 14, 72, 5, 5, 1]
 parms = Dict(
     "tStep"       => Minute(θi[1]),
     "step"        => Hour(θi[2]),
@@ -201,13 +97,73 @@ parms = Dict(
 parms["portion"] = parms["step"]/(parms["MTS"]*parms["MW"])*θi[8]
 
 # ============================================================
+# ================   Load and process data   =================
+# ============================================================
+
+quoteData = Dict{String, DataFrame}()
+seriesData = Dict{String, DataFrame}()
+for c in coins |> ProgressBar
+    data = loadCryptoQuotes(c)
+    data = data[data.ap .!= 0,:]
+    
+    # First is data to work on
+    data[!,:time] = copy(data.t)
+    data[!,:t] = round.(data.time, Minute(1), RoundDown)
+    data = combine(groupby(data, :t),
+        :ap => minimum => :ap,
+        :bp => maximum => :bp,
+        [:time,:as,:bs] => twapBias(Minute(1)) => :bias,
+        [:time,:as,:ap,:bs,:bp] => twapPrice(Minute(1)) => :vwap,
+        :time => length => :n,
+        :as => sum => :as,
+        :bs => sum => :bs,
+    )
+    quoteData[c] = data
+    
+    # data to infer on
+    TS = copy(data[!,["t", "vwap"]])
+    TS.t = round.(TS.t, parms["tStep"], RoundDown)
+    TS = combine(groupby(TS, :t), :vwap => last => :vwap)
+    TS[!,"vwap"] = log.(TS[!,"vwap"])
+    TS = leftjoin(DataFrame(t = range(TS.t[1],TS.t[end],step=parms["tStep"])), TS, on = :t)
+    
+    TS = TS[sortperm(TS.t),:]
+    while any(ismissing.(TS.vwap))
+        idx = findall(ismissing, TS.vwap)
+        TS.vwap[idx] = TS.vwap[idx .- 1]
+    end
+    seriesData[c] = TS
+end
+
+# data[608101,:]
+
+# Data = combine(groupby(data, :t),
+#     :ap => minimum => :ap,
+#     :bp => maximum => :bp,
+#     [:time,:as,:bs] => twapBias(Minute(1)) => :bias,
+#     [:time,:as,:ap,:bs,:bp] => twapPrice(Minute(1)) => :vwap,
+#     :time => length => :n,
+#     :as => sum => :as,
+#     :bs => sum => :bs,
+# )
+
+# findfirst(isnan.(Data.vwap))
+
+# data.time[5]
+
+# mean(isfinite.(quoteData["AVAX"].vwap))
+# findfirst(isnan.(quoteData["AVAX"].vwap))
+
+# groupby(data, :t)[608101].time[1]
+
+# ============================================================
 # =================   Compute Predictions   ==================
 # ============================================================
 
 # Store predictions; dictionary of DataFrames
 # Either start from scratch or continue from already done predictions
+@load "bot/data/bot1_2.jld2" preds
 preds = Dict{String, DataFrame}()
-@load "bot/data/bot1.jld2" preds
 
 for coin in coins
     if coin ∈ keys(preds)
@@ -215,138 +171,40 @@ for coin in coins
         continue
     end
     println("$coin")
-    data = loadCryptoQuotes(coin)
-    filter!(d -> d.bp != 0, data)
-    transform!(data, :t => ByRow(t -> round(t, parms["tStep"], RoundDown)) => :t)
-    minData = combine(groupby(data, :t),
-        :bp => last => :bp,
-    )
-    minData = leftjoin(DataFrame(t = range(minData.t[1],minData.t[end],step=parms["tStep"])), minData, on = :t)
-    sort!(minData, :t)
-    while any(ismissing.(minData.bp))
-        idx = findall(ismissing, minData.bp)
-        minData.bp[idx] = minData.bp[idx .- 1]
-    end
-    transform!(minData, :bp => ByRow(log) => :X)
 
     predictions = Dict[]
-    T0 = round(minData.t[1], Day, RoundDown)+parms["trainPeriod"]+parms["step"]
-    MaxT = minData.t[end]-parms["testPeriod"]
+    T0 = round(quoteData[coin].t[1], Day, RoundDown)+parms["trainPeriod"]+parms["step"]
+    MaxT = quoteData[coin].t[end]-parms["testPeriod"]
 
     for (i, T) in enumerate(range(T0, MaxT, step=parms["step"])) |> ProgressBar
-        TS = @view minData[T-parms["trainPeriod"] .≤ minData.t .< T,:]
-        μ = mean(TS.X)
-        σ = std(TS.X)
-        X = (TS.X .- μ) ./ σ
+        TS = @view seriesData[coin][T-parms["trainPeriod"] .≤ seriesData[coin].t .< T,:]
+        μ = mean(TS.vwap)
+        σ = std(TS.vwap)
+        σ != 0 || continue
+        X = (TS.vwap .- μ) ./ σ
 
         x,y = Format_TS_data(X, parms["P"], 0)
-        μ0, V0 = arPost(x,y)
-        x,y = Format_TS_data(X, parms["P"], 1)
-        μ1, V1 = arPost(x,y)
-        x,y = Format_TS_data(X, parms["P"], 2)
-        μ2, V2 = arPost(x,y)
+        BP, TP = arPost2(x,y)
 
         # If any predictions fail, skip
-        if all(isfinite.([μ0, V0, μ1, V1, μ2, V2]))
-            push!(predictions,
-                Dict(
-                    "t" => T,
-                    "μ0" => μ0*σ + μ,
-                    "V0" => V0*σ,
-                    "μ1" => μ1*σ,
-                    "V1" => V1*σ,
-                    "μ2" => μ2*σ,
-                    "V2" => V2*σ,
-                    "c"  => TS.X[end]
-                )
+        push!(predictions,
+            Dict(
+                "t" => T,
+                "BP" => BP*σ + μ,
+                "TP" => TP*σ + μ,
             )
-        end
+        )
     end
 
     preds[coin] = DataFrame(predictions)
 end
 
-@save "bot/data/bot1.jld2" preds
+@save "bot/data/bot1_2.jld2" preds
+
+# mean(isfinite.(seriesData["AVAX"].vwap))
 
 # coin = coins[3]
 # [count(isnan.(Matrix(select(preds[c], Not(:t))))) for c in coins] |> sum
-
-# ============================================================
-# ============   Create predictor for TP and BP   ============
-# ============================================================
-
-# Get 'ideal' trade outcomes and try use preds to predict them
-
-@load "bot/data/bot1.jld2" preds
-# @load "bot/data/tunBot_2_qutBar.jld2" preds
-
-# To avoid over-fitting we limit this training step to a smaller period of time.
-T0 = minimum([preds[c].t[1] for c in coins]) # Find first valid prediction time in data
-MaxT = T0 + Year(1) # Time to stop
-# T0 = minimum([preds[c].t[1] for c in coins]) + Year(1) + Month(2) # Find first valid prediction time in data
-# MaxT = maximum([preds[c].t[end] for c in coins]) # Time to stop
-X = Matrix{Float64}(undef, 0, 7)
-Y = Matrix{Float64}(undef, 0, 2)
-
-for coin in coins
-    println("Simulating $coin")
-
-    # Get real coin value movement from bars
-    barData = loadCryptoBars(coin)
-    bestBuys = Dict[]
-    times = preds[coin][preds[coin].t .< MaxT,:].t
-
-    # ensure there is predictions in specified period. New coins is the issue.
-    if isempty(times)
-        continue
-    end
-
-    y = Matrix{Float64}(undef, length(times), 2)
-
-    for (i, T) in enumerate(times) |> ProgressBar
-        # Get training subset
-        TS = @view barData[T .< barData.t .≤ T+parms["testPeriod"], :]
-
-        # 20% lowest price in proceeding period MW
-        # BBP = quantile(TS.h[TS.t .≤ T+parms["MW"]], 0.2)
-        # When does BBP first occur
-        # BBT = findfirst(TS.h .≤ BBP)
-        # After BBP 80% highest price achieved
-        # BTP = quantile(TS.l[BBT:end], 0.8)
-        # 20% lowest price in proceeding period MW
-        BBP = quantile(TS.l[TS.t .≤ T+parms["MW"]], 0.2)
-        # When does BBP first occur
-        BBT = findfirst(TS.l .≤ BBP)
-        # After BBP 80% highest price achieved
-        BTP = quantile(TS.h[BBT:end], 0.8)
-
-        # Alternate idea, performed worse
-        # BBP, BBT = findmin(TS2.l[TS2.t .≤ T+MW])
-        # BTP = maximum(TS2.h[BBT:end])
-
-        y[i,:] .= log.([BTP, BBP])
-    end
-
-    X = [X ; Matrix(preds[coin][preds[coin].t .< MaxT,[:μ0,:V0,:μ1,:V1,:μ2,:V2,:c]])]
-    Y = [Y ; y]
-end
-
-# Make X a design matrix
-X = [ones(size(X,1)) X]
-# OLS solution f : X → Y
-β = (X'*X+0I(8)) \ X'*Y
-
-@save "bot/data/bot_weights.jld2" β
-@save "bot/data/bot_weights2.jld2" β
-
-ŷ = X*β
-Y - ŷ
-count(ŷ[:,1] .< ŷ[:,2])
-count(Y[:,1] .< Y[:,2])
-
-X1 = X[:,1:end-1]
-β1 = (X1'*X1) \ X1'*Y
-Y - X1*β1
 
 # ============================================================
 # ================   Compute Trade Outcomes   ================
@@ -354,44 +212,45 @@ Y - X1*β1
 
 @load "bot/data/bot_weights.jld2" β
 # @load "bot/data/bot_weights2.jld2" β
-@load "bot/data/bot1.jld2" preds
+@load "bot/data/bot1_2.jld2" preds
 trades = Dict{String, DataFrame}()
 
 for coin in coins
     println("Simulating $coin")
-    barData = loadCryptoBars(coin)
     buyOutcomes = Dict[]
 
-    for T in preds[coin].t |> ProgressBar
-        # Estimate take profit and buy price
-        TP, BP = hcat(1, Matrix(select(preds[coin][preds[coin].t .== T, :], [:μ0,:V0,:μ1,:V1,:μ2,:V2,:c])))*β
-
+    for pred in eachrow(preds[coin]) |> ProgressBar
         # Get bar data to determine outcome
-        TS2 = @view barData[T .< barData.t .≤ T+parms["testPeriod"], :]
+        TS = @view quoteData[coin][pred.t .< quoteData[coin].t .≤ pred.t+parms["testPeriod"], :]
+        .! isempty(TS) || continue
+        # Estimate take profit and buy price
+        BP = pred.BP[1]
+        TP = pred.TP[1]
+
+        # TS2 = @view barData[T .< barData.t .≤ T+parms["testPeriod"], :]
 
         # Find when/if buy executes
-        BT = findfirst(TS2.l[TS2.t .≤ T+parms["MW"]] .< exp(BP))
-        # BT = findfirst(TS2.h[TS2.t .≤ T+parms["MW"]] .< exp(BP))
+        BT = findfirst(TS.ap[TS.t .≤ pred.t+parms["MW"]] .< exp(BP))
         if BT !== nothing # If buy executes
             # Check if take profit is hit
-            WT = findfirst(TS2.h[BT:end] .> exp(TP))
-            # WT = findfirst(TS2.l[BT:end] .> exp(TP))
+            WT = findfirst(TS.bp[BT:end] .> exp(TP))
             if WT !== nothing # If take profit is hit
                 # open price < hopeful buy price => market order, enter postion at open price
-                FP = TS2.o[1] < exp(BP) ? TS2.o[1] : exp(BP)
+                o = quoteData[coin][pred.t .< quoteData[coin].t,"ap"][1]
+                FP = o < exp(BP) ? o : exp(BP)
                 push!(buyOutcomes, 
                     Dict(
-                        "startTime"     => T,
+                        "startTime"     => pred.t,
                         "coin"          => coin,
                         "buyPrice"      => exp(BP),
                         "takeProfit"    => exp(TP),
-                        "startPrice"    => TS2.o[1],
-                        "buyTime"       => TS2.t[BT],
-                        "avgFillPrice"  => FP,
-                        "orderType"     => TS2.o[1] < exp(BP) ? "market" : "limit",
+                        "startPrice"    => o,
+                        "buyTime"       => TS.t[BT],
+                        "avgFillPrice"  => exp(BP),
+                        "orderType"     => o < exp(BP) ? "market" : "limit",
                         "status"        => "trade completed",
                         "avgSellPrice"  => exp(TP),
-                        "completeTime"  => TS2.t[BT+WT-1],
+                        "completeTime"  => TS.t[BT+WT-1],
                         "PL_pc"         => exp(TP)/FP,
                         "value"         => 0.0,
                         "orderQty"      => 0.0,
@@ -403,21 +262,23 @@ for coin in coins
                     )
                 )
             else # Take profit is not hit => kill at T + testPeriod
-                FP = TS2.o[1] < exp(BP) ? TS2.o[1] : exp(BP)
+                o = quoteData[coin][pred.t .< quoteData[coin].t,"ap"][1]
+                c = quoteData[coin][quoteData[coin].t .< pred.t + parms["testPeriod"],"bp"][end]
+                FP = o < exp(BP) ? o : exp(BP)
                 push!(buyOutcomes, 
                     Dict(
-                        "startTime"     => T,
+                        "startTime"     => pred.t,
                         "coin"          => coin,
                         "buyPrice"      => exp(BP),
                         "takeProfit"    => exp(TP),
-                        "startPrice"    => TS2.o[1],
-                        "buyTime"       => TS2.t[BT],
+                        "startPrice"    => o,
+                        "buyTime"       => TS.t[BT],
                         "avgFillPrice"  => FP,
-                        "orderType"     => TS2.o[1] < exp(BP) ? "market" : "limit",
+                        "orderType"     => "limit",
                         "status"        => "trade killed",
-                        "avgSellPrice"  => TS2.c[end],
-                        "completeTime"  => TS2.t[end],
-                        "PL_pc"         => TS2.c[end]/FP,
+                        "avgSellPrice"  => c,
+                        "completeTime"  => TS.t[end],
+                        "PL_pc"         => c/FP,
                         "value"         => 0.0,
                         "orderQty"      => 0.0,
                         "sellQty"       => 0.0,
@@ -429,19 +290,20 @@ for coin in coins
                 )
             end
         else # Buy fails to execute
+            o = quoteData[coin][pred.t .< quoteData[coin].t,"ap"][1]
             push!(buyOutcomes, 
                 Dict(
-                    "startTime"     => T,
+                    "startTime"     => pred.t,
                     "coin"          => coin,
                     "buyPrice"      => exp(BP),
                     "takeProfit"    => exp(TP),
-                    "startPrice"    => TS2.o[1],
+                    "startPrice"    => o,
                     "buyTime"       => DateTime(0),
                     "avgFillPrice"  => 0.0,
                     "orderType"     => "limit",
                     "status"        => "order failed",
                     "avgSellPrice"  => 0.0,
-                    "completeTime"  => T+parms["MW"],
+                    "completeTime"  => pred.t+parms["MW"],
                     "PL_pc"         => 1.0,
                     "value"         => 0.0,
                     "orderQty"      => 0.0,
@@ -458,23 +320,12 @@ for coin in coins
     trades[coin] = DataFrame(buyOutcomes)
 end
 
-@save "bot/data/bot1.jld2" preds trades
+@save "bot/data/bot1_2.jld2" preds trades
 
 # ============================================================
 # ===================   Classify winners   ===================
 # ============================================================
-
-using CUDA
-
-@load "bot/data/bot1.jld2" preds trades
-
-lossFun(ŷ::Vector) = -Y2'*log.(ŷ) - (1 .- Y2)'*log.(1 .- ŷ)
-lossFun(ŷ::CuArray) = -yt2'*log.(ŷ) - (1 .- yt2)'*log.(1 .- ŷ)
-sigmoid(x) = 1/(1+exp(-x))
-sigmoid(X::CuArray) = 1 ./ (1 .+ exp.(-X))
-softmax(x) = x > 0.5 ? 1 : 0
-η = 0.01
-n = size(X, 1)
+@load "bot/data/bot1_2.jld2" preds trades
 
 X = Matrix{Float64}(undef, 0, 9)
 Y = Float64[]
@@ -490,17 +341,28 @@ Y2 = clamp.(Y, eps(), 1-eps())
 X = [ones(size(X,1)) X]
 X[:,end-1:end] = log.(X[:,end-1:end])
 
+sigmoid(x) = 1/(1+exp(-x))
+softmax(x) = x > 0.5 ? 1 : 0
+
+using CUDA
+
+lossFun(ŷ::Vector) = -Y2'*log.(ŷ) - (1 .- Y2)'*log.(1 .- ŷ)
+lossFun(ŷ::CuArray) = -yt2'*log.(ŷ) - (1 .- yt2)'*log.(1 .- ŷ)
+sigmoid(X::CuArray) = 1 ./ (1 .+ exp.(-X))
+# n = size(X, 1)
+
 xt = CuArray{Float32}(X)
 yt = CuArray{Float32}(Y)
 yt2 = CuArray{Float32}(clamp.(yt, eps(1.0f0), 1.0f0-eps(1.0f0)))
 
-γ = 0.2*CUDA.randn(size(xt,2))
+γ = CUDA.randn(size(xt,2))
+γ = CuArray{Float32}(γ)
 ŷ = sigmoid.(xt*γ)
 losses = Float64[lossFun(clamp.(ŷ, eps(1.0f0), 1.0f0-eps(1.0f0)))]
 
 B = xt'*xt
 
-for _ in 1:10_000 |> ProgressBar
+for _ in 1:100_000 |> ProgressBar
     γ -= (ŷ'*(1 .- ŷ)*B)\xt'*(ŷ - yt)
     ŷ = sigmoid(xt*γ)
     push!(losses, lossFun(clamp.(ŷ, eps(1.0f0), 1-eps(1.0f0))))
@@ -509,16 +371,7 @@ end
 plot(losses)
 
 γ = Vector{Float64}(γ)
-
-
-ŷ = sigmoid.(X*γ)
-γ -= η*X'*(ŷ - Y)/n
-ŷ = sigmoid.(X*γ)
-push!(losses, lossFun(ŷ))
-
-eigen()
-
-ŷ = Vector{Float32}(softmax.(sigmoid.(xt*γ)))
+ŷ = softmax.(sigmoid.(X*γ))
 Y2 = softmax.(Y)
 
 mean((ŷ .== 1) .& (Y2 .== 1))
@@ -532,15 +385,19 @@ mean((ŷ .== 0) .& (Y2 .== 1))
 # ==================   Back-test Strategy   ==================
 # ============================================================
 
-@load "bot/data/bot1.jld2" preds trades
+@load "bot/data/bot1_2.jld2" preds trades
+@load "bot/data/bot1_infWeight.jld2" γ
+
+sigmoid(x) = 1/(1+exp(-x))
 
 parms["MakerFee"] = 0.0015
 parms["TakerFee"] = 0.0025
+parms["MTS"] = 5
 
 b0 = 0.8123960408246376
 b1 = 0.20159852269506473
 
-T0 = minimum([trades[c].startTime[1] for c in  keys(trades)])
+T0 = minimum([trades[c].startTime[1] for c in keys(trades)])
 MaxT = maximum([trades[c].startTime[end] for c in keys(trades)])
 n = length(range(T0, MaxT, step=parms["step"]))
 
@@ -548,11 +405,11 @@ begin
     liquidity = 2_000
     V = vcat(liquidity, zeros(n)) # log
     Liq = vcat(liquidity, zeros(n)) # log
-
+    
     ActiveTrades = Dict[]
     Trades = 0
     failures = 0
-
+    
     for (i, T) in enumerate(range(T0, MaxT, step=parms["step"]))
         # Complete trades which have finsihed before T
         V[i+1] = copy(V[i])
@@ -571,28 +428,27 @@ begin
             end
         end
         filter!(x -> x["completeTime"] > T, ActiveTrades)
-
+    
         # Get best trading opportunities
-        currentTrades = []
-        tv = Float64[]
-        for c in coins
-            t = trades[c][trades[c].startTime .== T,:]
-            p = preds[c][preds[c].t .== T,:]
-            if .! any(isempty.([t,p]))
-                push!(currentTrades, t)
-                push!(tv,sigmoid([1 ; Vector(p[1,["μ0", "V0", "μ1", "V1", "μ2", "V2", "c"]]); log.(Vector(t[1,["buyPrice", "takeProfit"]]))]'*γ))
-            end
-        end
+        # currentTrades = []
+        # tv = Float64[]
+        # for c in coins
+        #     t = trades[c][trades[c].startTime .== T,:]
+        #     p = preds[c][preds[c].t .== T,:]
+        #     if .! any(isempty.([t,p]))
+        #         push!(currentTrades, t)
+        #         push!(tv,sigmoid([1 ; Vector(p[1,["μ0", "V0", "μ1", "V1", "μ2", "V2", "c"]]); log.(Vector(t[1,["buyPrice", "takeProfit"]]))]'*γ))
+        #     end
+        # end
         
-        
-        # currentTrades = [trades[c][trades[c].startTime .== T,:] for c in keys(trades)]
-        # filter!(x -> .! isempty(x), currentTrades)
-        # filter!(x -> x.takeProfit[1]/x.buyPrice[1] > 1.05, currentTrades)
-        # tv = [isempty(t) ? 0 : t.takeProfit[1]/t.buyPrice[1] for t in currentTrades]
-
+        currentTrades = [trades[c][trades[c].startTime .== T,:] for c in keys(trades)]
+        filter!(x -> .! isempty(x), currentTrades)
+        filter!(x -> x.takeProfit[1]/x.buyPrice[1] > 1.05, currentTrades)
+        tv = [isempty(t) ? 0 : t.takeProfit[1]/t.buyPrice[1] for t in currentTrades]
+    
         # tv = [isempty(t) ? 0 : t.startPrice[1]/t.buyPrice[1] for t in currentTrades]
         # tv = [isempty(t) ? 0 : b0 + b1 * t.takeProfit[1]/t.buyPrice[1] for t in currentTrades]
-
+    
         idx = sortperm(tv, rev = true)
         # idx = sortperm(tv)
         # activate trade 
@@ -610,8 +466,10 @@ begin
                 liquidity -= min(V[i+1]*parms["portion"], liquidity)
             end
         end
-
+    
         Liq[i+1] = liquidity
+        # i+=1
+        # T=range(T0, MaxT, step=parms["step"])[i]
     end
 end
 
@@ -646,7 +504,7 @@ failures/Trades
 # ===================   Rolling Strategy   ===================
 # ============================================================
 
-@load "bot/data/bot1.jld2" preds trades
+@load "bot/data/bot1_2.jld2" preds trades
 
 MakerFee = 0.25/100
 TakerFee = 0.15/100
